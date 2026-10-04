@@ -6,7 +6,7 @@
 --
 -- NOTHING IS SAVED. Four separate safety nets:
 --   1. The whole script is one transaction: first line BEGIN, last line ROLLBACK.
---      There is no COMMIT anywhere in this file.
+--      There is no save (commit) command anywhere in this file.
 --   2. The check ends by stopping with a message (shown in red). A stopped
 --      transaction can never be saved; PostgreSQL discards it.
 --   3. The Supabase SQL Editor closes its connection after every run, and an
