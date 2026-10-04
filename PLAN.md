@@ -68,6 +68,16 @@ The database works out "today" with its own clock, not the phone's.
 **Confirm**
 - Locks the day. Notes can be added afterwards but never edited or deleted.
 
+## Day screen behaviour
+
+- Opens on today (India time). ◀ ▶ arrows, a date picker and "Go to today".
+- One **Save** button per day, with "Unsaved changes" / "Saved ✓" status.
+- Warns before switching days, logging out or leaving the page with unsaved changes.
+- Yes/no questions have three answers: Yes / No / Not answered. Blank is stored as "not answered", never as No.
+- Scores (1–5, 1–10) are tap buttons; tapping the selected number again clears it.
+- Number fields: blank = not answered (stored empty), never 0. Junk meals 0 means zero junk meals.
+- The app checks values with the same limits as the database before saving.
+
 ## Share page (read-only, confirmed days only)
 
 - **Shown:** weight, food totals (including drink kcal), fluid totals (water / sugary / total vs 4 L), steps, cardio, sleep times, junk meals.
@@ -89,7 +99,7 @@ Food database, charts, gym log, points/rank system, lab results, reminders, offl
 1. Accounts (Supabase, Vercel): done
 2. Empty app live on Vercel: done
 3. Database tables + security rules: done
-4. Login (owner only)
+4. Login (owner only): done
 5. Day screen: body, sleep, stress, steps
 6. Food log + kcal bar
 7. Fluids + cardio
