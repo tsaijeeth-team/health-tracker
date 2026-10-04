@@ -1,0 +1,30 @@
+# --- Secrets: NEVER commit these ---
+# Real settings (Supabase URL/keys etc.) live only in Vercel and in local .env files.
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Personal data: NEVER commit these ---
+# Exports from the app ("Export my data") must stay on your device.
+exports/
+*.csv
+health-export*.json
+
+# Dependencies and build output (re-created automatically)
+node_modules
+dist
+dist-ssr
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editor / OS clutter
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+*.sw?
