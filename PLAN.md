@@ -89,7 +89,7 @@ Food database, charts, gym log, points/rank system, lab results, reminders, offl
 1. Accounts (Supabase, Vercel): done
 2. Empty app live on Vercel: done
 3. Database tables + security rules: done
-4. Login (owner only)
+4. Login (owner only): done
 5. Day screen: body, sleep, stress, steps
 6. Food log + kcal bar
 7. Fluids + cardio
