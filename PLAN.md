@@ -28,10 +28,13 @@ The database works out "today" with its own clock, not the phone's.
 - Morning weight (kg)
 
 **Food** (many items per day)
-- Meal name, food, weight (g)
-- Calories, protein, carbs, fat
+- Meal: Wake-up, Breakfast, Lunch, Snack, Dinner, Pre-sleep, Other
+- Food name, weight (g)
+- Weight state: raw or cooked (required)
+- Calories (required); protein, carbs, fat (optional: blank means unknown)
 - Fibre: total, plus optional soluble and insoluble. Blank means unknown. Never estimated.
-- Hunger add-on (y/n)
+- Hunger add-on (y/n). Stays within the meal it followed.
+- Data source (optional): label, IFCT, USDA, research, other
 - Running daily kcal vs a 2,000 kcal cap. Warning only. Drink kcal is included.
 
 **Fluids** (many entries per day)
@@ -43,7 +46,7 @@ The database works out "today" with its own clock, not the phone's.
 - All fluids count toward the 4 L target. Sugary drinks are also shown as a separate total. Maad water is not sugary.
 
 **Sleep** (logged on the wake-up date)
-- Bedtime, wake time
+- Bedtime, wake time (exact clock times)
 - Duration is calculated automatically and handles crossing midnight. Same bedtime and wake time is an error.
 - Quality 1–5
 - Snoring y/n, gasping y/n
@@ -52,7 +55,8 @@ The database works out "today" with its own clock, not the phone's.
 
 **Workout**
 - Steps
-- Cardio sessions (many per day): type, minutes, time of day
+- Cardio sessions (many per day): type, minutes, start time (exact clock time)
+- Cardio types: Walk, Brisk walk, Run, Cycle, Swim, Skipping, Stairs, Other
 
 **Stress and habits**
 - Stress 1–10, energy 1–10
@@ -70,6 +74,11 @@ The database works out "today" with its own clock, not the phone's.
 - **Hidden:** porn, gaming hours, snoring, gasping, stress, energy, pulse, notes, sleep quality, nap minutes, afternoon sleepiness, Naam Jaap.
 - Fields not listed are hidden by default.
 
+## Database
+
+- Setup file: `supabase/migrations/001_init.sql` (run once in the Supabase SQL Editor).
+- Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
+
 ## Not in version 1
 
 Food database, charts, gym log, points/rank system, lab results, reminders, offline saving.
@@ -77,7 +86,7 @@ Food database, charts, gym log, points/rank system, lab results, reminders, offl
 ## Build steps
 
 1. Accounts (Supabase, Vercel): done
-2. Empty app live on Vercel
+2. Empty app live on Vercel: done
 3. Database tables + security rules
 4. Login (owner only)
 5. Day screen: body, sleep, stress, steps
