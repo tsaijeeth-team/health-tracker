@@ -5,6 +5,7 @@
 -- Example (local PostgreSQL, empty database "t"):
 --   psql -d t -f supabase/tests/supabase_stub.sql
 --   psql -d t -f supabase/migrations/001_init.sql
+--   psql -d t -f supabase/migrations/002_fibre_sum.sql
 --   psql -d t -f supabase/tests/lock_tests.sql
 
 \set ON_ERROR_STOP 1
@@ -123,7 +124,13 @@ select test.run('rejects unknown meal', 'authenticated', :A,
 select test.run('requires raw/cooked', 'authenticated', :A,
   $q$insert into public.food_items (day_id, meal, food, weight_g, kcal) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Egg', 50, 70)$q$, 'weight_state');
 select test.run('rejects soluble fibre above total', 'authenticated', :A,
-  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, fibre_total_g, fibre_soluble_g) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Oats', 40, 'raw', 150, 4, 5)$q$, 'soluble_within_total');
+  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, fibre_total_g, fibre_soluble_g) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Oats', 40, 'raw', 150, 4, 5)$q$, 'within_total');
+select test.run('rejects soluble + insoluble above total', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, fibre_total_g, fibre_soluble_g, fibre_insoluble_g) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Oats', 40, 'raw', 150, 4, 2, 2.5)$q$, 'fibre_parts_within_total');
+select test.run('accepts soluble + insoluble equal to total', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, fibre_total_g, fibre_soluble_g, fibre_insoluble_g) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Oats', 40, 'raw', 150, 4, 1.5, 2.5)$q$, null, 1);
+select test.run('accepts parts when total fibre is blank', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, fibre_soluble_g, fibre_insoluble_g) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Oats', 40, 'raw', 150, 1, 2)$q$, null, 1);
 select test.run('rejects unknown data source', 'authenticated', :A,
   $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, data_source) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Egg', 50, 'raw', 70, 'guess')$q$, 'data_source');
 select test.run('rejects unknown cardio type', 'authenticated', :A,

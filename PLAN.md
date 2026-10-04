@@ -78,6 +78,17 @@ The database works out "today" with its own clock, not the phone's.
 - Number fields: blank = not answered (stored empty), never 0. Junk meals 0 means zero junk meals.
 - The app checks values with the same limits as the database before saving.
 
+## Food log behaviour
+
+- Each food saves as soon as you tap Add or Update. Delete asks first.
+- Totals never treat unknown as 0: "at least 54 g (2 items unknown)".
+- Calorie bar: green below 1,800, amber 1,800–2,000, red above 2,000 (warning only).
+- Hunger add-ons are tagged and have their own kcal subtotal.
+- Recent foods: pick a food logged before (newest entry per food + raw/cooked), enter grams,
+  and every value scales from that last entry. kcal rounds to whole numbers, others to 1 decimal.
+  Unknown stays unknown. Changing a value by hand stops automatic scaling.
+- Fibre: soluble + insoluble cannot exceed total (checked in the app and in the database).
+
 ## Share page (read-only, confirmed days only)
 
 - **Shown:** weight, food totals (including drink kcal), fluid totals (water / sugary / total vs 4 L), steps, cardio, sleep times, junk meals.
@@ -86,7 +97,9 @@ The database works out "today" with its own clock, not the phone's.
 
 ## Database
 
-- Setup file: `supabase/migrations/001_init.sql` (run once in the Supabase SQL Editor).
+- Setup files, each run once in the Supabase SQL Editor, in order:
+  - `supabase/migrations/001_init.sql`
+  - `supabase/migrations/002_fibre_sum.sql`
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
 - Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 
@@ -100,7 +113,7 @@ Food database, charts, gym log, points/rank system, lab results, reminders, offl
 2. Empty app live on Vercel: done
 3. Database tables + security rules: done
 4. Login (owner only): done
-5. Day screen: body, sleep, stress, steps
+5. Day screen: body, sleep, stress, steps: done
 6. Food log + kcal bar
 7. Fluids + cardio
 8. Confirm & lock + notes
