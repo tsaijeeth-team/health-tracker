@@ -78,6 +78,7 @@ The database works out "today" with its own clock, not the phone's.
 
 - Setup file: `supabase/migrations/001_init.sql` (run once in the Supabase SQL Editor).
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
+- Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 
 ## Not in version 1
 
@@ -87,7 +88,7 @@ Food database, charts, gym log, points/rank system, lab results, reminders, offl
 
 1. Accounts (Supabase, Vercel): done
 2. Empty app live on Vercel: done
-3. Database tables + security rules
+3. Database tables + security rules: done
 4. Login (owner only)
 5. Day screen: body, sleep, stress, steps
 6. Food log + kcal bar
