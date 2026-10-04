@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { isConfigured, supabase } from './lib/supabase'
 import Login from './Login'
+import DayScreen from './DayScreen'
 
 function App() {
   if (!isConfigured || !supabase) {
@@ -47,20 +48,7 @@ function AuthGate({ supabase }: { supabase: SupabaseClient }) {
     return <Login supabase={supabase} />
   }
 
-  return (
-    <main className="screen">
-      <div className="card">
-        <h1>Health Tracker</h1>
-        <p>
-          Logged in as <strong>{session.user.email}</strong>
-        </p>
-        <p className="muted">The daily log arrives in the next step.</p>
-        <button type="button" className="secondary" onClick={() => supabase.auth.signOut()}>
-          Log out
-        </button>
-      </div>
-    </main>
-  )
+  return <DayScreen supabase={supabase} email={session.user.email ?? ''} />
 }
 
 export default App
