@@ -91,9 +91,9 @@ The database works out "today" with its own clock, not the phone's.
 
 ## Fluids & cardio behaviour
 
-- Quick-add water buttons: +250 ml and +500 ml at the current India time.
-  (Sizes are placeholders until the owner confirms glass and bottle sizes.)
-- After a quick-add, "Added X ml — Undo" shows for 5 seconds; Undo removes that drink without a pop-up.
+- "+ Add drink" opens the form with type Water and the current India time pre-selected,
+  and the cursor in the ml box (number keypad on phones). One tap on Add (or Enter) saves.
+- No quick-add buttons and no Undo message (removed at the owner's request).
 - New drinks and cardio sessions default to the current India time (editable).
 - 4 L bar counts all drinks; sugary drinks also shown as their own total.
 - Drink kcal (maad water, sugary drink, other) is added to the 2,000 kcal bar. A blank kcal on those types is "unknown".

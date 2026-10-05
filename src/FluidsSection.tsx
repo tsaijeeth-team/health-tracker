@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
-  EMPTY_FLUID_FORM, FLUID_TARGET_ML, FLUID_TYPES, QUICK_ADD_ML,
+  EMPTY_FLUID_FORM, FLUID_TARGET_ML, FLUID_TYPES,
   fluidFormFromRow, fluidFormsEqual, fluidLabel, fluidTotals, kcalAllowed, sortByTime, validateFluidForm,
   type FluidErrors, type FluidForm, type FluidRow,
 } from './lib/fluids'
@@ -23,10 +23,6 @@ type Props = {
 }
 
 type Mode = { kind: 'closed' } | { kind: 'add' } | { kind: 'edit'; item: FluidRow }
-type Undo = { id: string; dayId: string; ml: number }
-
-const UNDO_SECONDS = 5
-
 function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKcalChange }: Props) {
   const { rows, loading, error: loadError, reload } = useDayRows<FluidRow>(supabase, 'fluids', dayId)
   const [mode, setMode] = useState<Mode>({ kind: 'closed' })
@@ -35,8 +31,6 @@ function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKc
   const [errors, setErrors] = useState<FluidErrors>({})
   const [busy, setBusy] = useState(false)
   const [actionError, setActionError] = useState('')
-  const [undo, setUndo] = useState<Undo | null>(null)
-  const undoTimer = useRef<number | undefined>(undefined)
 
   const dirty = mode.kind !== 'closed' && !fluidFormsEqual(form, baseline)
   const totals = useMemo(() => fluidTotals(rows), [rows])
@@ -49,8 +43,6 @@ function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKc
   useEffect(() => {
     onKcalChange({ known: totals.kcalKnown, unknownCount: totals.kcalUnknownCount })
   }, [totals.kcalKnown, totals.kcalUnknownCount, onKcalChange])
-
-  useEffect(() => () => window.clearTimeout(undoTimer.current), [])
 
   function closeForm() {
     setMode({ kind: 'closed' })
@@ -66,8 +58,8 @@ function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKc
 
   function openAdd() {
     if (!confirmDiscard()) return
-    // The time is pre-filled with "now"; it only counts as unsaved once something else changes.
-    const start = { ...EMPTY_FLUID_FORM, drink_time: nowTimeIST() }
+    // Water and "now" are pre-selected; the form only counts as unsaved once something else changes.
+    const start: FluidForm = { ...EMPTY_FLUID_FORM, drink_type: 'water', drink_time: nowTimeIST() }
     setForm(start)
     setBaseline(start)
     setErrors({})
@@ -91,41 +83,9 @@ function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKc
     setForm((f) => ({ ...f, [key]: value }))
   }
 
-  function showUndo(next: Undo) {
-    window.clearTimeout(undoTimer.current)
-    setUndo(next)
-    undoTimer.current = window.setTimeout(() => setUndo(null), UNDO_SECONDS * 1000)
-  }
-
-  async function quickAdd(ml: number) {
-    setActionError('')
-    try {
-      const id = await ensureDay()
-      const { data, error } = await supabase
-        .from('fluids')
-        .insert({ day_id: id, drink_time: nowTimeIST(), drink_type: 'water', ml })
-        .select('id')
-        .single()
-      if (error) throw error
-      showUndo({ id: (data as { id: string }).id, dayId: id, ml })
-      await reload(id)
-    } catch (e) {
-      const err = e as { message?: string; code?: string }
-      setActionError(friendlyError(err.message ?? String(e), err.code))
-    }
-  }
-
-  async function undoLast() {
-    if (!undo) return
-    const target = undo
-    window.clearTimeout(undoTimer.current)
-    setUndo(null)
-    const { error } = await supabase.from('fluids').delete().eq('id', target.id)
-    if (error) setActionError(friendlyError(error.message, error.code))
-    await reload(target.dayId)
-  }
-
-  async function submit() {
+  async function submit(event?: FormEvent) {
+    event?.preventDefault()
+    if (busy) return
     const { errors: found, payload } = validateFluidForm(form)
     setErrors(found)
     if (!payload) {
@@ -200,13 +160,7 @@ function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKc
       </dl>
 
       {!locked && mode.kind === 'closed' && (
-        <>
-          <div className="button-row">
-            <button type="button" onClick={() => quickAdd(QUICK_ADD_ML.glass)}>+{QUICK_ADD_ML.glass} ml water</button>
-            <button type="button" onClick={() => quickAdd(QUICK_ADD_ML.bottle)}>+{QUICK_ADD_ML.bottle} ml water</button>
-          </div>
-          <button type="button" className="secondary" onClick={openAdd}>+ Add other drink</button>
-        </>
+        <button type="button" onClick={openAdd}>+ Add drink</button>
       )}
 
       {loading && <p className="muted small">Loading drinks…</p>}
@@ -239,7 +193,7 @@ function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKc
       {actionError && mode.kind === 'closed' && <p className="error small" role="alert">{actionError}</p>}
 
       {mode.kind !== 'closed' && (
-        <div className="subpanel">
+        <form className="subpanel" onSubmit={submit} noValidate>
           <h3>{mode.kind === 'edit' ? 'Edit drink' : 'Add drink'}</h3>
           <Field label="Time" error={errors.drink_time}>
             <input type="time" aria-label="Drink time" value={form.drink_time} disabled={busy}
@@ -264,7 +218,9 @@ function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKc
           )}
           <div className={showKcal ? 'two-col' : ''}>
             <Field label="Amount" hint="ml" error={errors.ml}>
-              <input type="text" inputMode="numeric" aria-label="Amount in ml" autoComplete="off" value={form.ml} disabled={busy}
+              {/* New drink: the cursor starts here, with the number keypad on phones. */}
+              <input type="text" inputMode="numeric" enterKeyHint="done" aria-label="Amount in ml" autoComplete="off"
+                autoFocus={mode.kind === 'add'} value={form.ml} disabled={busy}
                 onChange={(e) => update('ml', e.target.value)} />
             </Field>
             {showKcal && (
@@ -276,7 +232,7 @@ function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKc
           </div>
           {actionError && <p className="error small" role="alert">{actionError}</p>}
           <div className="button-row">
-            <button type="button" onClick={submit} disabled={busy}>
+            <button type="submit" disabled={busy}>
               {busy ? 'Saving…' : mode.kind === 'edit' ? 'Update' : 'Add'}
             </button>
             <button type="button" className="secondary" disabled={busy} onClick={() => { if (confirmDiscard()) closeForm() }}>
@@ -288,15 +244,9 @@ function FluidsSection({ supabase, dayId, locked, ensureDay, onDirtyChange, onKc
               Delete this drink
             </button>
           )}
-        </div>
+        </form>
       )}
 
-      {undo && (
-        <div className="toast" role="status">
-          <span>Added {formatNumber(undo.ml)} ml</span>
-          <button type="button" className="link toast-undo" onClick={undoLast}>Undo</button>
-        </div>
-      )}
     </section>
   )
 }

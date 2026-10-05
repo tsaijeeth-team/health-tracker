@@ -2,9 +2,6 @@
 
 export const FLUID_TARGET_ML = 4000
 
-// Quick-add sizes in ml. PLACEHOLDERS until the owner confirms real glass/bottle sizes.
-export const QUICK_ADD_ML = { glass: 250, bottle: 500 } as const
-
 export const FLUID_TYPES = [
   { value: 'water', label: 'Water', kcal: false },
   { value: 'lemonade_stevia', label: 'Lemonade (stevia)', kcal: false },
