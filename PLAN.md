@@ -114,10 +114,31 @@ The database works out "today" with its own clock, not the phone's.
 ## Points system (later step, not built yet)
 
 - **Clean day** = junk meals = 0 AND porn = No AND gaming ≤ 2 h. If any of the three is blank, the day is not clean.
-- A day not confirmed within 7 days is penalised.
+- **Missed confirm (−20 points):** a day counts as missed if it is not confirmed by 23:59 India time on the
+  7th day after it. Example: 5 Oct must be confirmed by 12 Oct, 23:59 IST.
 - A logged gym session earns +10 points (see step 12).
-- **Open question:** exact 7-day boundary. The notice currently treats a day as "last day to confirm" when it is
-  7 days old and overdue from 8 days old. Confirm or correct this before building points.
+- The "earlier days not confirmed" notice already follows this rule: "last day to confirm" on the 7th day after,
+  "over 7 days" from the 8th day (India time).
+
+## Look & colours
+
+- Main colour: deep red #B91C1C. Used for the top bar, primary buttons, selected options, the app icon ("HT" on red).
+- In dark mode, red buttons get a light-red outline (#F87171) so they stand out from the dark page.
+- Status colours keep their meaning and never look like the main colour:
+  - Calorie and 4 L bars: green → amber → red.
+  - Errors: ⚠ sign + pale-red box with a thick left border. Warnings: ⚠ sign + amber box or pill.
+  - Success ("Saved ✓", "Last export: today", Confirmed): green.
+  - Delete / switch-off buttons: outlined pale-red, never filled like the main buttons.
+- Every text/background pair checked for contrast (WCAG: 4.5:1 for text, 3:1 for buttons) in light and dark mode.
+
+## Install & backup
+
+- Installable on Android (Chrome menu → Install app). Opens full screen with the red "HT" icon.
+- Opens without internet; a ⚠ banner says changes can't be saved offline. Health data is never stored on the phone
+  by the app's offline helper; database requests always go to the internet.
+- "Share & backup" screen: Full backup (.json, everything incl. notes, no share-link secrets) and Daily summary
+  (.csv, one row per day, blanks stay blank). Files stay on the device. Reads all rows in pages of 1,000.
+- "Last export: N days ago" (remembered per device), amber ⚠ after 7 days or if never exported on this device.
 
 ## Share page (read-only, confirmed days only)
 
@@ -187,7 +208,7 @@ Food database, charts (except the gym graph in step 12), points/rank system, lab
 6. Food log + kcal bar: done
 7. Fluids + cardio: done
 8. Confirm & lock + notes: done
-9. Share links + read-only page
+9. Share links + read-only page: done
 10. PWA install + data export
 11. Security check, go live
 12. Gym log + progressive overload graph (live by 18 Oct 2026)

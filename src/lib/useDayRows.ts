@@ -15,7 +15,7 @@ export function useDayRows<T>(supabase: SupabaseClient, table: string, dayId: st
     if (req !== requestId.current) return // a newer request is in flight
     setLoading(false)
     if (err) {
-      setError(friendlyError(err.message, err.code))
+      setError(friendlyError(err.message, err.code, true))
       return
     }
     setError('')

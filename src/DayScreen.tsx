@@ -58,7 +58,7 @@ function DayScreen({ supabase, email, onOpenShare }: { supabase: SupabaseClient;
     const { data, error } = await supabase.from('days').select('*').eq('log_date', day).maybeSingle()
     if (id !== requestId.current) return // a newer day was opened meanwhile
     if (error) {
-      setLoadError(friendlyError(error.message, error.code))
+      setLoadError(friendlyError(error.message, error.code, true))
       setLoadState('error')
       return
     }
@@ -223,7 +223,7 @@ function DayScreen({ supabase, email, onOpenShare }: { supabase: SupabaseClient;
         <div className="topbar-right">
           <span className="muted small email">{email}</span>
           <button type="button" className="secondary small-button" onClick={openShare}>
-            Share
+            Share &amp; backup
           </button>
           <button type="button" className="secondary small-button" onClick={logOut}>
             Log out
