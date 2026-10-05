@@ -11,13 +11,14 @@ import { Field, ScaleButtons, TextInput, TriStateButtons } from './components/in
 import FoodSection from './FoodSection'
 import FluidsSection, { type DrinkKcal } from './FluidsSection'
 import CardioSection from './CardioSection'
+import GymCard from './GymCard'
 import NotesSection from './NotesSection'
 import ConfirmDialog from './ConfirmDialog'
 import { deadlineText, formatDateTimeIST, unconfirmedDays } from './lib/confirm'
 
 const UNSAVED_WARNING = 'You have unsaved changes. Leave without saving them?'
 
-function DayScreen({ supabase, email, onOpenShare }: { supabase: SupabaseClient; email: string; onOpenShare: () => void }) {
+function DayScreen({ supabase, email, onOpenShare, onOpenProgress }: { supabase: SupabaseClient; email: string; onOpenShare: () => void; onOpenProgress: () => void }) {
   const [date, setDate] = useState(() => todayIST())
   const [savedRow, setSavedRow] = useState<DayRow | null>(null)
   const [savedForm, setSavedForm] = useState<DayForm>(EMPTY_FORM)
@@ -31,6 +32,7 @@ function DayScreen({ supabase, email, onOpenShare }: { supabase: SupabaseClient;
   const [foodDirty, setFoodDirty] = useState(false)
   const [fluidsDirty, setFluidsDirty] = useState(false)
   const [cardioDirty, setCardioDirty] = useState(false)
+  const [gymDirty, setGymDirty] = useState(false)
   const [drinkKcal, setDrinkKcal] = useState<DrinkKcal>({ known: 0, unknownCount: 0 })
   const [notesDirty, setNotesDirty] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -39,7 +41,7 @@ function DayScreen({ supabase, email, onOpenShare }: { supabase: SupabaseClient;
   const requestId = useRef(0)
 
   const dirty = !formsEqual(form, savedForm)
-  const anyDirty = dirty || foodDirty || fluidsDirty || cardioDirty || notesDirty
+  const anyDirty = dirty || foodDirty || fluidsDirty || cardioDirty || gymDirty || notesDirty
   const locked = Boolean(savedRow?.confirmed_at)
   const today = todayIST()
   const pending = unconfirmedDays(allDays, today)
@@ -104,6 +106,7 @@ function DayScreen({ supabase, email, onOpenShare }: { supabase: SupabaseClient;
     setFoodDirty(false)
     setFluidsDirty(false)
     setCardioDirty(false)
+    setGymDirty(false)
     setDrinkKcal({ known: 0, unknownCount: 0 })
     setNotesDirty(false)
     setConfirmOpen(false)
@@ -119,6 +122,11 @@ function DayScreen({ supabase, email, onOpenShare }: { supabase: SupabaseClient;
   function openShare() {
     if (anyDirty && !window.confirm(UNSAVED_WARNING)) return
     onOpenShare()
+  }
+
+  function openProgress() {
+    if (anyDirty && !window.confirm(UNSAVED_WARNING)) return
+    onOpenProgress()
   }
 
   // Food needs a saved day to attach to. Creates an empty day row if there isn't one yet,
@@ -345,6 +353,15 @@ function DayScreen({ supabase, email, onOpenShare }: { supabase: SupabaseClient;
             <section className="card">
               <h2>Workout</h2>
               {numberField('steps', 'Steps', '', 'numeric')}
+              <GymCard
+                key={`gym-${date}`}
+                supabase={supabase}
+                dayId={savedRow?.id ?? null}
+                locked={locked}
+                ensureDay={ensureDay}
+                onDirtyChange={setGymDirty}
+                onOpenProgress={openProgress}
+              />
             </section>
 
             <CardioSection

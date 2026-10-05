@@ -102,7 +102,7 @@ function ShareScreen({ supabase, email, onBack }: { supabase: SupabaseClient; em
     setExportError('')
     try {
       const entries = await Promise.all(BACKUP_TABLES.map(async (table) => {
-        const rows = await fetchAllRows((from, to) => supabase.from(table).select('*').order('created_at').range(from, to))
+        const rows = await fetchAllRows((from, to) => supabase.from(table).select('*').order('created_at').order('id').range(from, to))
         return [table, rows] as const
       }))
       const data = Object.fromEntries(entries) as BackupData

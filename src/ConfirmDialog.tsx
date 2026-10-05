@@ -19,7 +19,8 @@ type Props = {
   onConfirmed: () => void
 }
 
-type Items = { food: FoodRow[]; fluids: FluidRow[]; cardio: CardioRow[] }
+type GymSummary = { muscle_groups: string[]; gym_exercises: { exercises: { name: string } | null; gym_sets: { reps: number }[] }[] }
+type Items = { food: FoodRow[]; fluids: FluidRow[]; cardio: CardioRow[]; gym: GymSummary | null }
 
 const yesNo = (v: boolean | null) => (v === null ? '—' : v ? 'Yes' : 'No')
 const val = (v: number | string | null, unit = '') => (v === null ? '—' : `${typeof v === 'number' ? formatNumber(v) : v}${unit}`)
@@ -35,21 +36,22 @@ function ConfirmDialog({ supabase, date, isToday, row, ensureDay, onCancel, onCo
     let cancelled = false
     async function load() {
       if (!row) {
-        setItems({ food: [], fluids: [], cardio: [] })
+        setItems({ food: [], fluids: [], cardio: [], gym: null })
         return
       }
-      const [food, fluids, cardio] = await Promise.all([
+      const [food, fluids, cardio, gym] = await Promise.all([
         supabase.from('food_items').select('*').eq('day_id', row.id),
         supabase.from('fluids').select('*').eq('day_id', row.id),
         supabase.from('cardio_sessions').select('*').eq('day_id', row.id).order('start_time'),
+        supabase.from('gym_sessions').select('muscle_groups, gym_exercises(position, exercises(name), gym_sets(reps))').eq('day_id', row.id).order('position', { referencedTable: 'gym_exercises' }).maybeSingle(),
       ])
       if (cancelled) return
-      const err = food.error ?? fluids.error ?? cardio.error
+      const err = food.error ?? fluids.error ?? cardio.error ?? gym.error
       if (err) {
         setLoadError(friendlyError(err.message, err.code))
         return
       }
-      setItems({ food: food.data as FoodRow[], fluids: fluids.data as FluidRow[], cardio: cardio.data as CardioRow[] })
+      setItems({ food: food.data as FoodRow[], fluids: fluids.data as FluidRow[], cardio: cardio.data as CardioRow[], gym: gym.data as GymSummary | null })
     }
     load()
     return () => { cancelled = true }
@@ -153,6 +155,14 @@ function ConfirmDialog({ supabase, date, isToday, row, ensureDay, onCancel, onCo
                   {items.cardio.length === 0
                     ? 'none logged'
                     : `${formatMinutes(totalMinutes(items.cardio))}: ${items.cardio.map((c) => `${cardioLabel(c.cardio_type)} ${c.minutes} min`).join(', ')}`}
+                </dd>
+              </div>
+              <div>
+                <dt>Gym</dt>
+                <dd>
+                  {!items.gym
+                    ? 'none logged'
+                    : `${items.gym.gym_exercises.map((e) => `${e.exercises?.name ?? 'Exercise'} ${e.gym_sets.length} set${e.gym_sets.length === 1 ? '' : 's'}`).join(', ')}`}
                 </dd>
               </div>
             </dl>
