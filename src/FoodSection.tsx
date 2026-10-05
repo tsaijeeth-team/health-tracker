@@ -16,11 +16,12 @@ type Props = {
   locked: boolean
   ensureDay: () => Promise<string>
   onDirtyChange: (dirty: boolean) => void
+  drinkKcal: { known: number; unknownCount: number }
 }
 
 type Mode = { kind: 'closed' } | { kind: 'add' } | { kind: 'edit'; item: FoodRow }
 
-function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange }: Props) {
+function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange, drinkKcal }: Props) {
   const [items, setItems] = useState<FoodRow[]>([])
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(Boolean(dayId))
@@ -64,7 +65,8 @@ function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange }: Prop
   }, [dayId, fetchItems])
 
   const totals = useMemo(() => foodTotals(items), [items])
-  const kcal = totals.kcal.known
+  // The calorie bar counts food plus drinks with calories (maad water, sugary drinks, other).
+  const kcal = Math.round((totals.kcal.known + drinkKcal.known) * 100) / 100
   const level = kcalLevel(kcal)
 
   function closeForm() {
@@ -209,7 +211,7 @@ function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange }: Prop
 
       <div className="kcal">
         <div className="kcal-numbers">
-          <strong>{formatNumber(kcal)}</strong> / {formatNumber(KCAL_CAP)} kcal
+          <strong>{drinkKcal.unknownCount > 0 ? 'at least ' : ''}{formatNumber(kcal)}</strong> / {formatNumber(KCAL_CAP)} kcal
           <span className={`kcal-note ${level}`}>
             {kcal > KCAL_CAP
               ? `${formatNumber(kcal - KCAL_CAP)} over the cap`
@@ -220,6 +222,12 @@ function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange }: Prop
           aria-valuemin={0} aria-valuemax={KCAL_CAP} aria-valuenow={kcal}>
           <div className={`kcal-fill ${level}`} style={{ width: `${Math.min(100, (kcal / KCAL_CAP) * 100)}%` }} />
         </div>
+        {(drinkKcal.known > 0 || drinkKcal.unknownCount > 0) && (
+          <p className="muted small kcal-drinks">
+            incl. {formatNumber(drinkKcal.known)} kcal from drinks
+            {drinkKcal.unknownCount > 0 && ` (+ ${drinkKcal.unknownCount} drink${drinkKcal.unknownCount === 1 ? '' : 's'} with unknown kcal)`}
+          </p>
+        )}
         {level === 'red' && <p className="kcal-warning small">Over the 2,000 kcal cap. Warning only, no penalty.</p>}
       </div>
 

@@ -9,6 +9,8 @@ import { formatMinutes, sleepDuration } from './lib/sleep'
 import { friendlyError } from './lib/errors'
 import { Field, ScaleButtons, TextInput, TriStateButtons } from './components/inputs'
 import FoodSection from './FoodSection'
+import FluidsSection, { type DrinkKcal } from './FluidsSection'
+import CardioSection from './CardioSection'
 
 const UNSAVED_WARNING = 'You have unsaved changes. Leave without saving them?'
 
@@ -24,10 +26,13 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
   const [saveError, setSaveError] = useState('')
   const [justSaved, setJustSaved] = useState(false)
   const [foodDirty, setFoodDirty] = useState(false)
+  const [fluidsDirty, setFluidsDirty] = useState(false)
+  const [cardioDirty, setCardioDirty] = useState(false)
+  const [drinkKcal, setDrinkKcal] = useState<DrinkKcal>({ known: 0, unknownCount: 0 })
   const requestId = useRef(0)
 
   const dirty = !formsEqual(form, savedForm)
-  const anyDirty = dirty || foodDirty
+  const anyDirty = dirty || foodDirty || fluidsDirty || cardioDirty
   const locked = Boolean(savedRow?.confirmed_at)
   const today = todayIST()
 
@@ -77,6 +82,9 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
     if (newDate === date || !isValidDate(newDate)) return
     if (anyDirty && !window.confirm(UNSAVED_WARNING)) return
     setFoodDirty(false)
+    setFluidsDirty(false)
+    setCardioDirty(false)
+    setDrinkKcal({ known: 0, unknownCount: 0 })
     resetForLoad()
     setDate(newDate)
   }
@@ -242,6 +250,17 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
               locked={locked}
               ensureDay={ensureDay}
               onDirtyChange={setFoodDirty}
+              drinkKcal={drinkKcal}
+            />
+
+            <FluidsSection
+              key={`fluids-${date}`}
+              supabase={supabase}
+              dayId={savedRow?.id ?? null}
+              locked={locked}
+              ensureDay={ensureDay}
+              onDirtyChange={setFluidsDirty}
+              onKcalChange={setDrinkKcal}
             />
 
             <section className="card">
@@ -266,8 +285,16 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
             <section className="card">
               <h2>Workout</h2>
               {numberField('steps', 'Steps', '', 'numeric')}
-              <p className="muted small">Cardio sessions come in a later step.</p>
             </section>
+
+            <CardioSection
+              key={`cardio-${date}`}
+              supabase={supabase}
+              dayId={savedRow?.id ?? null}
+              locked={locked}
+              ensureDay={ensureDay}
+              onDirtyChange={setCardioDirty}
+            />
 
             <section className="card">
               <h2>Stress &amp; habits</h2>
