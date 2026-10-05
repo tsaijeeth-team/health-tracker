@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { MAX_NAME, cleanName, exerciseNameError, usedMessage } from './lib/gym'
+import { LOCKED_MESSAGE, MAX_NAME, cleanName, exerciseNameError, usedMessage } from './lib/gym'
 import { formatDateTimeIST } from './lib/confirm'
 import { friendlyError } from './lib/errors'
 
-// The owner's exercise list: rename any time (sets, reps and kg never change),
-// delete only if never used. Every rename is kept in a permanent history.
+// The owner's exercise list. Rename (sets, reps and kg never change) until the exercise is used
+// on a confirmed day; then its name is locked 🔒. Delete only if never used.
+// Every rename is kept in a permanent history.
 
 export type Rename = { old_name: string; new_name: string; renamed_at: string }
 export type ExerciseItem = { id: string; name: string; exercise_renames: Rename[] }
@@ -14,10 +15,18 @@ type Props = {
   supabase: SupabaseClient
   exercises: ExerciseItem[]
   sessionCounts: Map<string, number>
+  lockedIds: Set<string>
   onChanged: () => Promise<void>
 }
 
-function ExercisesCard({ supabase, exercises, sessionCounts, onChanged }: Props) {
+// The database's refusal, in the app's words.
+function refusal(message: string): string | null {
+  if (message.includes(LOCKED_MESSAGE)) return `${LOCKED_MESSAGE}.`
+  const used = /Used in \d+ sessions?/.exec(message)
+  return used ? `${used[0]} — rename instead.` : null
+}
+
+function ExercisesCard({ supabase, exercises, sessionCounts, lockedIds, onChanged }: Props) {
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [message, setMessage] = useState<{ id: string; text: string } | null>(null)
@@ -38,7 +47,9 @@ function ExercisesCard({ supabase, exercises, sessionCounts, onChanged }: Props)
     const { error } = await supabase.from('exercises').update({ name }).eq('id', ex.id)
     setBusy(false)
     if (error) {
-      setMessage({ id: ex.id, text: error.code === '23505' ? `"${name}" is already in your list.` : friendlyError(error.message, error.code) })
+      const refused = refusal(error.message)
+      setMessage({ id: ex.id, text: error.code === '23505' ? `"${name}" is already in your list.` : refused ?? friendlyError(error.message, error.code) })
+      if (refused) { setEditing(null); await onChanged() } // e.g. the day was confirmed on another device
       return
     }
     setEditing(null)
@@ -54,8 +65,7 @@ function ExercisesCard({ supabase, exercises, sessionCounts, onChanged }: Props)
     setBusy(false)
     if (error) {
       // The database has the final word (e.g. used on another device a moment ago).
-      const used = /Used in \d+ sessions?/.exec(error.message)
-      setMessage({ id: ex.id, text: used ? `${used[0]} — rename instead.` : friendlyError(error.message, error.code) })
+      setMessage({ id: ex.id, text: refusal(error.message) ?? friendlyError(error.message, error.code) })
       await onChanged() // show the up-to-date usage count
       return
     }
@@ -65,10 +75,14 @@ function ExercisesCard({ supabase, exercises, sessionCounts, onChanged }: Props)
   return (
     <section className="card">
       <h2>Your exercises</h2>
-      <p className="muted small">Renaming keeps every set and graph. Each rename is recorded below the exercise.</p>
+      <p className="muted small">
+        Renaming keeps every set and graph. Each rename is recorded below the exercise.
+        🔒 = used on a confirmed day: the name is locked.
+      </p>
       <ul className="exercise-list">
         {exercises.map((ex) => {
           const used = sessionCounts.get(ex.id) ?? 0
+          const locked = lockedIds.has(ex.id)
           const history = [...ex.exercise_renames].sort((a, b) => b.renamed_at.localeCompare(a.renamed_at))
           return (
             <li key={ex.id} className="exercise-row" aria-label={ex.name}>
@@ -87,12 +101,15 @@ function ExercisesCard({ supabase, exercises, sessionCounts, onChanged }: Props)
                 <div className="gym-head">
                   <span>
                     <strong>{ex.name}</strong>
+                    {locked && <span className="lock-badge" role="img" aria-label={`locked: ${LOCKED_MESSAGE}`} title={LOCKED_MESSAGE}> 🔒</span>}
                     <span className="muted small"> · {used === 0 ? 'not used yet' : `${used} session${used === 1 ? '' : 's'}`}</span>
                   </span>
-                  <span className="exercise-actions">
-                    <button type="button" className="link" disabled={busy || editing !== null} onClick={() => startRename(ex)}>Rename</button>
-                    <button type="button" className="link" disabled={busy || editing !== null} onClick={() => remove(ex)}>Delete</button>
-                  </span>
+                  {!locked && (
+                    <span className="exercise-actions">
+                      <button type="button" className="link" disabled={busy || editing !== null} onClick={() => startRename(ex)}>Rename</button>
+                      <button type="button" className="link" disabled={busy || editing !== null} onClick={() => remove(ex)}>Delete</button>
+                    </span>
+                  )}
                 </div>
               )}
               {message?.id === ex.id && <p className="error small" role="alert">{message.text}</p>}

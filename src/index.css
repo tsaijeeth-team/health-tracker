@@ -1333,3 +1333,8 @@ a.button-link.secondary {
   flex-direction: column;
   gap: 2px;
 }
+
+.confirm-exercises {
+  margin: 0;
+  padding-left: 18px;
+}

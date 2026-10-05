@@ -217,11 +217,15 @@ Graphs are on a separate "Progress" screen.
 **Exercises**
 - Picked from a saved exercise list the owner can add to. No free-text duplicates
   (e.g. "Bench press" and "bench press " count as the same exercise).
-- **Rename** any time, even if used on confirmed days. The no-duplicates rule still applies (capitals and spaces
-  ignored). Sets, reps and kg never change: sessions point to the exercise, not its name.
-- **Rename history** (old name → new name, date/time) is kept permanently and shown under the exercise
-  ("Your exercises" on the Progress screen), so label changes on confirmed days stay traceable.
+- **Name lock:** an exercise name locks once the exercise is used in a gym session on any confirmed day.
+  - Not used on a confirmed day: rename allowed (no-duplicates rule still applies, capitals and spaces ignored).
+  - Used on a confirmed day: rename and delete refused: "Used on a confirmed day — locked". Enforced by the
+    database, also for the Supabase dashboard, like the day lock. The app shows 🔒 and hides Rename/Delete.
+  - Sets, reps and kg never change on rename: sessions point to the exercise, not its name.
+- **Rename history** (old name → new name, date/time) is kept permanently, including renames made before the
+  lock, and shown under the exercise ("Your exercises" on the Progress screen).
 - **Delete** only if never used in any session; otherwise: "Used in N sessions — rename instead".
+- **Confirm dialog** lists the day's exercise names so the spelling can be checked before they lock.
 - Graphs follow the exercise, so history stays connected after a rename.
 - Each exercise in a session: sets, each with reps and weight (kg), plus an optional note per exercise.
 - A new set copies the previous set's reps and kg.

@@ -160,9 +160,16 @@ function ConfirmDialog({ supabase, date, isToday, row, ensureDay, onCancel, onCo
               <div>
                 <dt>Gym</dt>
                 <dd>
-                  {!items.gym
-                    ? 'none logged'
-                    : `${items.gym.gym_exercises.map((e) => `${e.exercises?.name ?? 'Exercise'} ${e.gym_sets.length} set${e.gym_sets.length === 1 ? '' : 's'}`).join(', ')}`}
+                  {!items.gym ? 'none logged' : (
+                    <>
+                      <ul className="confirm-exercises" aria-label="Exercise names">
+                        {items.gym.gym_exercises.map((e, i) => (
+                          <li key={i}><strong>{e.exercises?.name ?? 'Exercise'}</strong> · {e.gym_sets.length} set{e.gym_sets.length === 1 ? '' : 's'}</li>
+                        ))}
+                      </ul>
+                      <span className="small">🔒 These exercise names lock with this day. Check the spelling now.</span>
+                    </>
+                  )}
                 </dd>
               </div>
             </dl>

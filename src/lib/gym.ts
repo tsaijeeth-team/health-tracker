@@ -85,6 +85,9 @@ export function exerciseNameError(typed: string, list: { id: string; name: strin
   return null
 }
 
+// Once an exercise is used on a confirmed day its name can no longer change (database rule).
+export const LOCKED_MESSAGE = 'Used on a confirmed day — locked'
+
 // "Used in 3 sessions — rename instead." The database gives the same answer.
 export const usedMessage = (sessions: number) =>
   `Used in ${sessions} session${sessions === 1 ? '' : 's'} — rename instead.`

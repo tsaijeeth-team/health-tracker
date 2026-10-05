@@ -5,8 +5,9 @@
 --
 -- Tables:
 --   exercises      your saved exercise list (no duplicates: "Bench press"
---                  and " bench  PRESS" count as the same name). Can be
---                  renamed any time; deleted only if never used.
+--                  and " bench  PRESS" count as the same name). A name
+--                  LOCKS once the exercise is used on a confirmed day. Before
+--                  that it can be renamed; deleted only if never used.
 --   exercise_renames  permanent history of renames (old -> new, when)
 --   gym_sessions   ONE per day at most (enforced here, not just in the app)
 --   gym_exercises  exercises done in a session, with an optional note
@@ -134,7 +135,48 @@ create policy "owner manages own gym sets" on public.gym_sets
     and exists (select 1 from public.gym_exercises g where g.id = entry_id and g.user_id = (select auth.uid()))
   );
 
--- ---------- Exercise rename history and delete rule ----------
+-- ---------- Exercise name lock, rename history and delete rule ----------
+
+-- True if the exercise is used in a session on a confirmed day (its name is then locked).
+-- Locks those days' rows first, so a day being confirmed at this very moment is waited for.
+create or replace function private.exercise_is_locked(p_exercise_id uuid)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform 1 from public.gym_exercises g
+    join public.gym_sessions s on s.id = g.session_id
+    join public.days d on d.id = s.day_id
+    where g.exercise_id = p_exercise_id
+    for share of d;
+  return exists (
+    select 1 from public.gym_exercises g
+      join public.gym_sessions s on s.id = g.session_id
+      join public.days d on d.id = s.day_id
+      where g.exercise_id = p_exercise_id and d.confirmed_at is not null);
+end;
+$$;
+
+-- Rename: refused once the name is locked (also from the dashboard).
+create or replace function private.guard_exercise_rename()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.name is distinct from old.name and private.exercise_is_locked(old.id) then
+    raise exception 'Used on a confirmed day — locked: "%" cannot be renamed.', old.name;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger guard_exercise_rename
+  before update on public.exercises
+  for each row execute function private.guard_exercise_rename();
 
 -- Records every real name change. Runs with the database's rights because the app
 -- itself may not write history rows. Time comes from the server clock.
@@ -158,6 +200,7 @@ create trigger record_exercise_rename
   for each row execute function private.record_exercise_rename();
 
 -- Delete only if the exercise was never used; otherwise a clear message.
+-- Locked (used on a confirmed day) is reported first.
 create or replace function private.guard_exercise_delete()
 returns trigger
 language plpgsql
@@ -167,6 +210,9 @@ as $$
 declare
   used int;
 begin
+  if private.exercise_is_locked(old.id) then
+    raise exception 'Used on a confirmed day — locked: "%" cannot be deleted.', old.name;
+  end if;
   select count(*) into used from public.gym_exercises where exercise_id = old.id;
   if used > 0 then
     raise exception 'Used in % session% — rename instead.', used, case when used = 1 then '' else 's' end;

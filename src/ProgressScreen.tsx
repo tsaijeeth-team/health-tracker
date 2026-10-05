@@ -15,7 +15,7 @@ import { friendlyError } from './lib/errors'
 type Entry = {
   exercise_id: string
   exercises: { name: string } | null
-  gym_sessions: { days: { log_date: string } | null } | null
+  gym_sessions: { days: { log_date: string; confirmed_at: string | null } | null } | null
   gym_sets: GymSet[]
 }
 
@@ -31,7 +31,7 @@ function ProgressScreen({ supabase, onBack }: { supabase: SupabaseClient; onBack
       const rows = await fetchAllRows((from, to) =>
         supabase
           .from('gym_exercises')
-          .select('exercise_id, exercises(name), gym_sessions(days(log_date)), gym_sets(reps, weight_kg)')
+          .select('exercise_id, exercises(name), gym_sessions(days(log_date, confirmed_at)), gym_sets(reps, weight_kg)')
           .order('created_at')
           .order('id')
           .range(from, to) as unknown as PromiseLike<{ data: Row[] | null; error: { message: string; code?: string } | null }>,
@@ -61,6 +61,11 @@ function ProgressScreen({ supabase, onBack }: { supabase: SupabaseClient; onBack
   const refresh = useCallback(async () => { await Promise.all([loadEntries(), loadList()]) }, [loadEntries, loadList])
 
   const names = useMemo(() => new Map((list ?? []).map((e) => [e.id, e.name])), [list])
+  // Used on a confirmed day = name locked (the database enforces it; this only shows it).
+  const lockedIds = useMemo(
+    () => new Set((entries ?? []).filter((e) => e.gym_sessions?.days?.confirmed_at).map((e) => e.exercise_id)),
+    [entries],
+  )
   const sessionCounts = useMemo(() => {
     const counts = new Map<string, number>()
     for (const e of entries ?? []) counts.set(e.exercise_id, (counts.get(e.exercise_id) ?? 0) + 1)
@@ -175,7 +180,7 @@ function ProgressScreen({ supabase, onBack }: { supabase: SupabaseClient; onBack
           </>
         )}
         {list !== null && list.length > 0 && entries !== null && (
-          <ExercisesCard supabase={supabase} exercises={list} sessionCounts={sessionCounts} onChanged={refresh} />
+          <ExercisesCard supabase={supabase} exercises={list} sessionCounts={sessionCounts} lockedIds={lockedIds} onChanged={refresh} />
         )}
       </main>
     </div>
