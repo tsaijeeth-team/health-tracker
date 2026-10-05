@@ -7,6 +7,7 @@
 --   psql -d t -f supabase/migrations/001_init.sql
 --   psql -d t -f supabase/migrations/002_fibre_sum.sql
 --   psql -d t -f supabase/migrations/003_other_descriptions.sql
+--   psql -d t -f supabase/migrations/004_share_function.sql
 --   psql -d t -f supabase/tests/lock_tests.sql
 
 \set ON_ERROR_STOP 1
@@ -256,6 +257,70 @@ select test.check('share token is 64 random hex characters',
   (select token from public.share_links limit 1));
 select test.run('intruder sees no share links', 'authenticated', :B,
   $q$select * from public.share_links$q$, null, 0);
+
+-- ---------- Share page: the only door for logged-out viewers ----------
+-- State here: owner A has two confirmed days (d1 = 2026-10-01, d4 = today) and one unconfirmed (tomorrow).
+-- d1 has: food Dal 210 kcal (protein 14), water 500 ml, maad water 250 ml 40 kcal, cardio brisk walk 30 min,
+-- a note, and private fields (bedtime 23:30, wake 07:00, junk meals 1).
+select token as share_token from public.share_links where label = 'Family' \gset
+\set T '''' :share_token ''''
+
+select test.run('visitor can call the share function', 'anon', null,
+  format('select public.get_shared_progress(%L)', :'share_token'), null, 1);
+select test.check('share shows only confirmed days (2), newest first',
+  (select jsonb_array_length(public.get_shared_progress(:T)->'days')) = 2
+  and (select public.get_shared_progress(:T)->'days'->1->>'date') = '2026-10-01',
+  (select public.get_shared_progress(:T)::text));
+select test.check('unconfirmed (tomorrow) not shared',
+  not exists (select 1 from jsonb_array_elements(public.get_shared_progress(:T)->'days') e
+              where (e->>'date')::date > (now() at time zone 'Asia/Kolkata')::date));
+select test.check('each shared day has exactly the allowed fields',
+  (select bool_and((select array_agg(k order by k) from jsonb_object_keys(e) k) =
+     array['bedtime','cardio','date','fluids','food','junk_meals','sleep_minutes','steps','wake_time','weight_kg'])
+   from jsonb_array_elements(public.get_shared_progress(:T)->'days') e));
+select test.check('no hidden field or note text anywhere in the shared data',
+  (select public.get_shared_progress(:T)::text) !~* '(porn|gaming|snoring|gasping|stress|energy|pulse|quality|nap|sleepiness|naam|notes|breakfast by mistake|confirmed_at|user_id|"id")',
+  (select public.get_shared_progress(:T)::text));
+select test.check('shared totals for 1 Oct: 210 kcal food, 750 ml fluids, 40 kcal drinks, 30 min cardio, 7 h 30 sleep',
+  (select (e->'food'->>'kcal')::numeric = 210 and (e->'food'->>'protein_g')::numeric = 14
+      and (e->'fluids'->>'total_ml')::int = 750 and (e->'fluids'->>'sugary_ml')::int = 0
+      and (e->'fluids'->>'kcal')::numeric = 40 and (e->'cardio'->0->>'minutes')::int = 30
+      and e->>'bedtime' = '23:30' and (e->>'sleep_minutes')::int = 450 and (e->>'junk_meals')::int = 1
+   from jsonb_array_elements(public.get_shared_progress(:T)->'days') e where e->>'date' = '2026-10-01'),
+  (select public.get_shared_progress(:T)::text));
+select test.check('wrong token returns nothing',
+  public.get_shared_progress(repeat('a', 64)) is null);
+select test.check('malformed token returns nothing',
+  public.get_shared_progress('abc') is null and public.get_shared_progress(null) is null
+  and public.get_shared_progress(:T || ' or 1=1') is null);
+select test.run('visitor still cannot read tables directly', 'anon', null, $q$select * from public.days$q$, 'permission denied');
+
+-- Another user's link never shows the owner's data.
+select test.run('intruder creates own link', 'authenticated', :B,
+  $q$insert into public.share_links (label) values ('B link')$q$, null, 1);
+select token as b_token from public.share_links where label = 'B link' \gset
+select test.check('intruder link shows none of the owner''s days',
+  (select jsonb_array_length(public.get_shared_progress(:'b_token')->'days')) = 0);
+
+-- Expired link.
+select test.run('owner creates an expired link', 'authenticated', :A,
+  $q$insert into public.share_links (label, expires_at) values ('Old', now() - interval '1 minute')$q$, null, 1);
+select token as old_token from public.share_links where label = 'Old' \gset
+select test.check('expired link returns nothing', public.get_shared_progress(:'old_token') is null);
+
+-- Token and owner can never change.
+select test.run('cannot change a link''s token', 'authenticated', :A,
+  $q$update public.share_links set token = repeat('b', 64) where label = 'Family'$q$, 'cannot be changed');
+
+-- Revoke: immediate and permanent.
+select test.run('owner revokes the link', 'authenticated', :A,
+  $q$update public.share_links set revoked_at = now() where label = 'Family'$q$, null, 1);
+select test.check('revoked link returns nothing', public.get_shared_progress(:T) is null);
+select test.run('revoked link cannot be re-activated', 'authenticated', :A,
+  $q$update public.share_links set revoked_at = null where label = 'Family'$q$, 'revoked');
+select test.run('dashboard cannot re-activate it either', 'postgres', null,
+  $q$update public.share_links set revoked_at = null where label = 'Family'$q$, 'revoked');
+select test.check('still revoked', public.get_shared_progress(:T) is null);
 
 -- ---------- Report ----------
 \o

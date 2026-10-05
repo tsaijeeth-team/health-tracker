@@ -17,7 +17,7 @@ import { deadlineText, formatDateTimeIST, unconfirmedDays } from './lib/confirm'
 
 const UNSAVED_WARNING = 'You have unsaved changes. Leave without saving them?'
 
-function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: string }) {
+function DayScreen({ supabase, email, onOpenShare }: { supabase: SupabaseClient; email: string; onOpenShare: () => void }) {
   const [date, setDate] = useState(() => todayIST())
   const [savedRow, setSavedRow] = useState<DayRow | null>(null)
   const [savedForm, setSavedForm] = useState<DayForm>(EMPTY_FORM)
@@ -114,6 +114,11 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
   function logOut() {
     if (anyDirty && !window.confirm(UNSAVED_WARNING)) return
     supabase.auth.signOut()
+  }
+
+  function openShare() {
+    if (anyDirty && !window.confirm(UNSAVED_WARNING)) return
+    onOpenShare()
   }
 
   // Food needs a saved day to attach to. Creates an empty day row if there isn't one yet,
@@ -217,6 +222,9 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
         <strong>Health Tracker</strong>
         <div className="topbar-right">
           <span className="muted small email">{email}</span>
+          <button type="button" className="secondary small-button" onClick={openShare}>
+            Share
+          </button>
           <button type="button" className="secondary small-button" onClick={logOut}>
             Log out
           </button>

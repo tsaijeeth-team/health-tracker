@@ -124,6 +124,17 @@ The database works out "today" with its own clock, not the phone's.
 - **Shown:** weight, food totals (including drink kcal), fluid totals (water / sugary / total vs 4 L), steps, cardio, sleep times, junk meals.
 - **Hidden:** porn, gaming hours, snoring, gasping, stress, energy, pulse, notes, sleep quality, nap minutes, afternoon sleepiness, Naam Jaap.
 - Fields not listed are hidden by default.
+- Food totals = kcal (food + drinks), protein, carbs, fat, fibre ("at least … (n unknown)"). Individual food items hidden.
+- Cardio = type, minutes, start time and the "Other" description. Sleep = bedtime, wake time, duration.
+- All confirmed days, newest first.
+- Links: label (only the owner sees it), expiry Never / 7 days / 30 days, Copy, Preview, Switch off.
+  Switching off is immediate and permanent (the database refuses re-activation). Tokens never change.
+- A bad, expired or switched-off link shows the same "This link is not valid" message.
+- The database function `get_shared_progress(token)` is the only thing a viewer can call; it returns an
+  allow-list of fields for confirmed days of the link's owner (migration 004).
+- Search engines are told not to index any page: `noindex` meta tag plus an `X-Robots-Tag` header on every
+  page (vercel.json). Pages also send no referrer.
+- **Later (points step):** add the owner's current rank to the share page.
 
 ## Database
 
@@ -131,6 +142,7 @@ The database works out "today" with its own clock, not the phone's.
   - `supabase/migrations/001_init.sql`
   - `supabase/migrations/002_fibre_sum.sql`
   - `supabase/migrations/003_other_descriptions.sql`
+  - `supabase/migrations/004_share_function.sql`
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
 - Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 
@@ -174,7 +186,7 @@ Food database, charts (except the gym graph in step 12), points/rank system, lab
 5. Day screen: body, sleep, stress, steps: done
 6. Food log + kcal bar: done
 7. Fluids + cardio: done
-8. Confirm & lock + notes
+8. Confirm & lock + notes: done
 9. Share links + read-only page
 10. PWA install + data export
 11. Security check, go live
