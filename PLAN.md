@@ -187,12 +187,14 @@ The owner joins the gym on 19 Oct 2026, so this step must be merged and live by 
 
 **Points:** a logged gym session earns +10 points (points step).
 
-**Open questions (decide before building step 12):**
-- Estimated 1-rep max formula. Proposal: Epley, weight × (1 + reps ÷ 30), from the best set of the session.
-- "Top set" definition. Proposal: heaviest weight in the session; ties go to the set with more reps.
-- Bodyweight exercises (e.g. pull-ups, push-ups) have 0 kg, so volume and 1-rep max would be 0.
-  Proposal: allow 0 kg and also chart total reps for those.
-- Does a gym session lock when its day is confirmed? Proposal: yes, same as food, drinks and cardio.
+**Decisions (owner, 5 Oct 2026):**
+1. **Estimated 1-rep max (e1RM):** Epley, weight × (1 + reps ÷ 30), using only sets with ≤ 10 reps.
+   A 1-rep set's e1RM is the weight lifted. The session's e1RM is the highest value among its eligible sets.
+   - If every set in a session has more than 10 reps, that session has no e1RM point (the graph shows a gap).
+   - 0 kg (bodyweight) sets give no e1RM.
+2. **Top set:** the heaviest weight in the session; if tied, the set with more reps.
+3. **Bodyweight exercises:** 0 kg is allowed; their graph also shows total reps per session.
+4. **Locking:** a gym session locks when its day is confirmed (same as food, drinks and cardio).
 
 ## Not in version 1
 
@@ -209,6 +211,6 @@ Food database, charts (except the gym graph in step 12), points/rank system, lab
 7. Fluids + cardio: done
 8. Confirm & lock + notes: done
 9. Share links + read-only page: done
-10. PWA install + data export
+10. PWA install + data export: done
 11. Security check, go live
 12. Gym log + progressive overload graph (live by 18 Oct 2026)
