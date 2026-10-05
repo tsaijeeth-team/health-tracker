@@ -1,5 +1,5 @@
 -- =====================================================================
--- Health Tracker: LIVE CHECK of the real database (build steps 4, 11, 12 and food units)
+-- Health Tracker: LIVE CHECK of the real database (build steps 4, 11, 12, 14 and food units)
 --
 -- Run in Supabase: SQL Editor -> New query -> paste ALL -> Run.
 -- Do not highlight part of it: the editor would run only the highlighted part.
@@ -414,6 +414,47 @@ begin
     end if;
   end;
 
+  -- ---- 52-56. Points & rank (007) ----
+  -- 2000-01-01 alone, as if today were that day: weight 80 kg = all 6 milestones (+300); confirmed today, long
+  -- after its deadline (-20); junk/porn/gaming blank = not clean; gym with 1 set = no gym points. Total 280.
+  reset role;
+  begin
+    select private.points_report(owner_id, '2000-01-01 12:00 Asia/Kolkata'::timestamptz, '2000-01-01') into val;
+    if (val::jsonb->>'total')::int = 280 and val::jsonb->>'rank' = 'Sainik'
+       and (select count(*) from jsonb_array_elements(val::jsonb->'days'->0->'items') i where i->>'code' = 'milestone') = 6
+       and val::jsonb->'days'->0->'items' @> '[{"code":"missed_confirm"},{"code":"not_clean"},{"code":"gym_too_short"}]' then
+      passed := passed + 1;
+    else failures := failures || ('points for 2000-01-01 should total 280, got: ' || coalesce(val::jsonb->>'total', 'nothing'));
+    end if;
+  exception when others then
+    failures := failures || ('could not calculate points (did you run 007_points.sql?): ' || sqlerrm);
+  end;
+  perform set_config('request.jwt.claim.sub', owner_id::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_id, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    select public.get_my_points()::text into val;
+    if val::jsonb ? 'rank' and val::jsonb ? 'total' and val::jsonb ? 'days' then passed := passed + 1;
+    else failures := failures || 'your points report is missing parts'::text;
+    end if;
+  exception when others then
+    failures := failures || ('could not load your points report: ' || sqlerrm);
+  end;
+  begin
+    insert into public.weight_targets (week_start, target_kg) values (date_trunc('week', date '2099-12-31')::date, 90);
+    passed := passed + 1;
+  exception when others then
+    failures := failures || ('could not set a weekly target: ' || sqlerrm);
+  end;
+  begin
+    insert into public.weight_targets (week_start, target_kg) values (date_trunc('week', date '2000-01-03')::date, 90);
+    failures := failures || 'a weekly target for a past week was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%this week or a later week%' then passed := passed + 1;
+    else failures := failures || ('past-week target blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+
   -- ---- 42-44. Share page, as a logged-out visitor ----
   reset role;
   perform set_config('request.jwt.claim.sub', '', true);
@@ -436,6 +477,16 @@ begin
     else failures := failures || 'share page returned fields outside the allowed list'::text; end if;
   exception when others then
     failures := failures || ('share field check failed: ' || sqlerrm);
+  end;
+  begin
+    select (select array_agg(k order by k) from jsonb_object_keys(public.get_shared_progress(v_token)) k)::text into val;
+    if val = '{days,rank}' and public.get_shared_progress(v_token)->>'rank' in
+         ('Sainik', 'Shoorveer', 'Samanth', 'Raja', 'Maharaj', 'Chakravarti Samrat', 'Vikramaditya') then
+      passed := passed + 1;
+    else failures := failures || ('share page should show days and rank only, got: ' || coalesce(val, 'nothing'));
+    end if;
+  exception when others then
+    failures := failures || ('share page rank check failed: ' || sqlerrm);
   end;
   begin
     perform 1 from public.share_links;
@@ -464,7 +515,7 @@ begin
 
   -- ---- Report (stops the transaction on purpose, so nothing is saved) ----
   if cardinality(failures) = 0 then
-    raise exception 'LIVE CHECK PASSED: % of 51 checks passed. Everything was undone; nothing was saved.', passed;
+    raise exception 'LIVE CHECK PASSED: % of 56 checks passed. Everything was undone; nothing was saved.', passed;
   else
     raise exception 'LIVE CHECK FAILED: % passed, % failed: %. Nothing was saved.',
       passed, cardinality(failures), array_to_string(failures, ' | ');

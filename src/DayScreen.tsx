@@ -18,7 +18,7 @@ import { deadlineText, formatDateTimeIST, unconfirmedDays } from './lib/confirm'
 
 const UNSAVED_WARNING = 'You have unsaved changes. Leave without saving them?'
 
-function DayScreen({ supabase, email, onOpenShare, onOpenProgress }: { supabase: SupabaseClient; email: string; onOpenShare: () => void; onOpenProgress: () => void }) {
+function DayScreen({ supabase, email, onOpenShare, onOpenProgress, onOpenPoints }: { supabase: SupabaseClient; email: string; onOpenShare: () => void; onOpenProgress: () => void; onOpenPoints: () => void }) {
   const [date, setDate] = useState(() => todayIST())
   const [savedRow, setSavedRow] = useState<DayRow | null>(null)
   const [savedForm, setSavedForm] = useState<DayForm>(EMPTY_FORM)
@@ -122,6 +122,11 @@ function DayScreen({ supabase, email, onOpenShare, onOpenProgress }: { supabase:
   function openShare() {
     if (anyDirty && !window.confirm(UNSAVED_WARNING)) return
     onOpenShare()
+  }
+
+  function openPoints() {
+    if (anyDirty && !window.confirm(UNSAVED_WARNING)) return
+    onOpenPoints()
   }
 
   function openProgress() {
@@ -230,8 +235,11 @@ function DayScreen({ supabase, email, onOpenShare, onOpenProgress }: { supabase:
         <strong>Health Tracker</strong>
         <div className="topbar-right">
           <span className="muted small email">{email}</span>
-          <button type="button" className="secondary small-button" onClick={openShare}>
-            Share &amp; backup
+          <button type="button" className="secondary small-button" onClick={openPoints} aria-label="Points & rank">
+            🏆<span className="hide-narrow"> Points</span>
+          </button>
+          <button type="button" className="secondary small-button" onClick={openShare} aria-label="Share & backup">
+            Share<span className="hide-narrow"> &amp; backup</span>
           </button>
           <button type="button" className="secondary small-button" onClick={logOut}>
             Log out

@@ -10,6 +10,7 @@
 --   psql -d t -f supabase/migrations/004_share_function.sql
 --   psql -d t -f supabase/migrations/005_food_units.sql
 --   psql -d t -f supabase/migrations/006_gym.sql
+--   psql -d t -f supabase/migrations/007_points.sql
 --   psql -d t -f supabase/tests/lock_tests.sql
 
 \set ON_ERROR_STOP 1
@@ -523,6 +524,183 @@ select test.run('confirming that day locks its exercise names', 'authenticated',
 select test.run('…and the rename is now refused', 'authenticated', :A,
   format($q$update public.exercises set name = 'Pull-up' where id = %L$q$, :'pullup'), 'Used on a confirmed day — locked');
 
+
+-- =====================================================================
+-- ---------- Points & rank (007) ----------
+-- Three more people, each with hand-worked expected answers. Data is written as the database owner
+-- (row rules bypassed, lock triggers still on). T = today (India time).
+insert into auth.users (id) values
+  ('00000000-0000-0000-0000-00000000000c'),
+  ('00000000-0000-0000-0000-00000000000d'),
+  ('00000000-0000-0000-0000-00000000000e');
+\set C '''00000000-0000-0000-0000-00000000000c'''
+\set D '''00000000-0000-0000-0000-00000000000d'''
+\set E '''00000000-0000-0000-0000-00000000000e'''
+select (now() at time zone 'Asia/Kolkata')::date as t \gset
+\set T '''' :t ''''
+
+-- C: a realistic 10 days. Confirmed now, so T-9 is late (-20) and T-8 (nothing logged) is missed (-20).
+insert into public.days (user_id, log_date, junk_meals, porn, gaming_hours, weight_kg)
+select :C, :T::date - k, 0, false,
+       case when k = 7 then 1.5 else 0 end,
+       case k when 9 then 103 when 7 then 101.5 when 5 then 99.9 when 1 then 99.2 when 0 then 99.0 end
+from generate_series(0, 9) k where k <> 8;
+-- Weekly target for this week, set today as C: only weigh-ins from today on count.
+select test.run('weekly target: owner sets this week''s target', 'authenticated', :C,
+  format($q$insert into public.weight_targets (week_start, target_kg) values (%L, 99.5)$q$, date_trunc('week', :T::date)::date), null, 1);
+update public.days set confirmed_at = now() where user_id = :C;
+select private.points_report(:C, now(), :T::date - 9) as c_report \gset
+\set CR '''' :c_report ''''
+select test.check('C: total 360 = 5 - 20 + 70 + 25 + 125 + 25 + 25 + 25 + 45 + 35',
+  (:CR::jsonb->>'total')::int = 360, :CR::jsonb->>'total');
+select test.check('C: rank Shoorveer (350 or more)', :CR::jsonb->>'rank' = 'Shoorveer', :CR::jsonb->>'rank');
+select test.check('C: late confirm takes -20 but the day still earns (T-9: -20 +20 +5 = 5)',
+  (select (e->>'points')::int = 5 and e->'items' @> '[{"code":"missed_confirm"},{"code":"clean_day"},{"code":"no_games"}]'
+   from jsonb_array_elements(:CR::jsonb->'days') e where e->>'date' = (:T::date - 9)::text));
+select test.check('C: a day with nothing logged is missed (-20)',
+  (select (e->>'points')::int = -20 and jsonb_array_length(e->'items') = 1
+   from jsonb_array_elements(:CR::jsonb->'days') e where e->>'date' = (:T::date - 8)::text));
+select test.check('C: gaming 1.5 h is clean but earns no "no games" +5; milestone 102 kg (+50)',
+  (select (e->>'points')::int = 70 and not e->'items' @> '[{"code":"no_games"}]' and e->'items' @> '[{"code":"milestone"}]'
+   from jsonb_array_elements(:CR::jsonb->'days') e where e->>'date' = (:T::date - 7)::text));
+select test.check('C: 99.9 kg earns both the 100 and 99.9 milestones, once each',
+  (select count(*) from jsonb_array_elements(:CR::jsonb->'days') e, jsonb_array_elements(e->'items') i where i->>'code' = 'milestone') = 3);
+select test.check('C: 7-day clean streak bonus on the 7th day after the gap (T-1), not before',
+  (select string_agg(e->>'date', ',') from jsonb_array_elements(:CR::jsonb->'days') e where e->'items' @> '[{"code":"streak"}]')
+  = (:T::date - 1)::text);
+select test.check('C: weekly target hit only by today''s weigh-in (yesterday was before the target was set)',
+  (select string_agg(e->>'date', ',') from jsonb_array_elements(:CR::jsonb->'days') e where e->'items' @> '[{"code":"weekly_target"}]')
+  = :T);
+select test.check('C: report says this week''s target was hit', (:CR::jsonb->'this_week'->>'hit')::boolean);
+select test.check('C: next rank Samanth needs 340 more points',
+  :CR::jsonb->'next_rank'->>'name' = 'Samanth' and (:CR::jsonb->'next_rank'->>'points_needed')::int = 340);
+select test.run('weekly target: locked once hit (change refused)', 'authenticated', :C,
+  $q$update public.weight_targets set target_kg = 98$q$, 'already hit — locked');
+select test.run('weekly target: locked once hit (delete refused)', 'authenticated', :C,
+  $q$delete from public.weight_targets$q$, 'already hit — locked');
+select test.run('weekly target: dashboard cannot change a hit target either', 'postgres', null,
+  format($q$update public.weight_targets set target_kg = 98 where user_id = %L$q$, :C), 'already hit — locked');
+select test.run('weekly target: a past week is refused', 'authenticated', :C,
+  format($q$insert into public.weight_targets (week_start, target_kg) values (%L, 99)$q$, date_trunc('week', :T::date)::date - 7), 'this week or a later week');
+select test.run('weekly target: next week can be set', 'authenticated', :C,
+  format($q$insert into public.weight_targets (week_start, target_kg) values (%L, 99)$q$, date_trunc('week', :T::date)::date + 7), null, 1);
+select test.run('weekly target: next week can be changed (not hit)', 'authenticated', :C,
+  format($q$update public.weight_targets set target_kg = 98.5 where week_start = %L$q$, date_trunc('week', :T::date)::date + 7), null, 1);
+select test.run('weekly target: the week must start on a Monday', 'authenticated', :C,
+  format($q$insert into public.weight_targets (week_start, target_kg) values (%L, 99)$q$, date_trunc('week', :T::date)::date + 15), 'weight_targets_week_start_check');
+select test.run('weekly target: 2 decimals refused', 'authenticated', :C,
+  format($q$insert into public.weight_targets (week_start, target_kg) values (%L, 99.25)$q$, date_trunc('week', :T::date)::date + 21), 'weight_targets_target_kg_check');
+select test.run('weekly target: one per week', 'authenticated', :C,
+  format($q$insert into public.weight_targets (week_start, target_kg) values (%L, 97)$q$, date_trunc('week', :T::date)::date + 7), 'weight_target_once_per_week');
+select test.run('weekly target: set_on comes from the server, not the app', 'authenticated', :C,
+  format($q$update public.weight_targets set set_on = '2000-01-01' where week_start = %L$q$, date_trunc('week', :T::date)::date + 7), 'permission denied');
+select test.check('weekly target: set_on is today',
+  (select bool_and(set_on = :T::date) from public.weight_targets where user_id = :C));
+select test.run('weekly target: intruder sees none of C''s targets', 'authenticated', :B, $q$select * from public.weight_targets$q$, null, 0);
+select test.run('weekly target: visitor cannot read targets', 'anon', null, $q$select * from public.weight_targets$q$, 'permission denied');
+
+-- D: penalties, blanks, gym rules, an unconfirmed today.
+insert into public.days (user_id, log_date, junk_meals, porn, gaming_hours) values
+  (:D, :T::date - 3, 2, true, 3),
+  (:D, :T::date - 2, 0, false, null),
+  (:D, :T::date - 1, 0, false, null),
+  (:D, :T::date, 0, false, 0);
+insert into public.exercises (user_id, name) values (:D, 'Squat');
+insert into public.gym_sessions (user_id, day_id, start_time, muscle_groups)
+  select :D, id, '07:00', array['legs'] from public.days where user_id = :D and log_date in (:T::date - 2, :T::date - 1);
+insert into public.gym_exercises (user_id, session_id, exercise_id, position)
+  select :D, s.id, e.id, 1 from public.gym_sessions s, public.exercises e where s.user_id = :D and e.user_id = :D;
+insert into public.gym_sets (user_id, entry_id, set_number, reps, weight_kg)
+  select :D, g.id, n, 8, 40 from public.gym_exercises g join public.gym_sessions s on s.id = g.session_id join public.days d on d.id = s.day_id,
+    generate_series(1, 2) n
+  where g.user_id = :D and (d.log_date = :T::date - 1 or n = 1);
+update public.days set confirmed_at = now() where user_id = :D and log_date < :T::date;
+select private.points_report(:D, now(), :T::date - 3) as d_report \gset
+\set DR '''' :d_report ''''
+select test.check('D: junk 2 meals, porn Yes, gaming 3 h = -50 -15 -10 = -75, not clean',
+  (select (e->>'points')::int = -75 and e->'items' @> '[{"code":"junk_day"},{"code":"porn"},{"code":"gaming_over"},{"code":"not_clean"}]'
+   from jsonb_array_elements(:DR::jsonb->'days') e where e->>'date' = (:T::date - 3)::text));
+select test.check('D: the "not clean" line explains every reason',
+  (select i->>'label' = 'Not clean: 2 junk meals, porn Yes, gaming 3 h'
+   from jsonb_array_elements(:DR::jsonb->'days') e, jsonb_array_elements(e->'items') i
+   where e->>'date' = (:T::date - 3)::text and i->>'code' = 'not_clean'));
+select test.check('D: blank gaming = not clean and no "no games" (0 points); gym with only 1 set = no points',
+  (select (e->>'points')::int = 0 and e->'items' @> '[{"code":"gym_too_short"}]'
+     and (select i->>'label' from jsonb_array_elements(e->'items') i where i->>'code' = 'not_clean') = 'Not clean: gaming not answered'
+   from jsonb_array_elements(:DR::jsonb->'days') e where e->>'date' = (:T::date - 2)::text));
+select test.check('D: gym with an exercise of 2 sets = +10',
+  (select (e->>'points')::int = 10 and e->'items' @> '[{"code":"gym"}]'
+   from jsonb_array_elements(:DR::jsonb->'days') e where e->>'date' = (:T::date - 1)::text));
+select test.check('D: today not confirmed = no points yet (pending)',
+  (select (e->>'points')::int = 0 and e->'items' @> '[{"code":"pending"}]'
+   from jsonb_array_elements(:DR::jsonb->'days') e where e->>'date' = :T));
+select test.check('D: total can go below 0 (-65), rank Sainik',
+  (:DR::jsonb->>'total')::int = -65 and :DR::jsonb->>'rank' = 'Sainik', :DR::jsonb->>'total');
+select test.check('D: days before the start date are ignored',
+  (select count(*) from jsonb_array_elements(:DR::jsonb->'days')) = 4);
+
+-- E: 520 clean, on-time days to walk through every rank and weight gate.
+-- Day k (1..520) = T-521+k. Total on day k = 300 (all 6 milestones on day 1) + 25k + 20*floor(k/7).
+-- Confirm times are set directly (test database only) so no day is late.
+alter table public.days disable trigger guard_days;
+insert into public.days (user_id, log_date, junk_meals, porn, gaming_hours, weight_kg, confirmed_at)
+select :E, :T::date - 521 + k, 0, false, 0,
+  case when k <= 150 then 93 when k <= 160 then 94.6 when k <= 170 then 96 when k <= 240 then 93
+       when k <= 330 then 84 when k <= 340 then 85.8 when k <= 350 then 87 else 84 end,
+  ((:T::date - 520 + k)::timestamp at time zone 'Asia/Kolkata')
+from generate_series(1, 520) k;
+alter table public.days enable trigger guard_days;
+select private.points_report(:E, now(), :T::date - 520) as e_report \gset
+\set ER '''' :e_report ''''
+create function test.e_rank(k int, report jsonb) returns text language sql as $$
+  select e->>'rank' from jsonb_array_elements(report->'days') e
+  where e->>'date' = ((now() at time zone 'Asia/Kolkata')::date - 521 + k)::text $$;
+create function test.e_total(k int, report jsonb) returns int language sql as $$
+  select (e->>'total')::int from jsonb_array_elements(report->'days') e
+  where e->>'date' = ((now() at time zone 'Asia/Kolkata')::date - 521 + k)::text $$;
+select test.check('E: totals follow 300 + 25k + 20*floor(k/7) (day 1: 325, day 7: 495, day 520: 14780)',
+  test.e_total(1, :ER) = 325 and test.e_total(7, :ER) = 495 and test.e_total(520, :ER) = 300 + 25 * 520 + 20 * 74,
+  test.e_total(520, :ER)::text);
+select test.check('E: Sainik -> Shoorveer at 350 (day 2), Samanth at 700, Raja at 1,500',
+  test.e_rank(1, :ER) = 'Sainik' and test.e_rank(2, :ER) = 'Shoorveer'
+  and test.e_rank(14, :ER) = 'Shoorveer' and test.e_rank(15, :ER) = 'Samanth' and test.e_rank(43, :ER) = 'Samanth' and test.e_rank(44, :ER) = 'Raja');
+select test.check('E: Maharaj on the first day with 3,500 points (day 116; gate held since day 1)',
+  test.e_rank(115, :ER) = 'Raja' and test.e_rank(116, :ER) = 'Maharaj', test.e_total(116, :ER)::text);
+select test.check('E: average between 94 and 95 keeps Maharaj (day 162: exactly 95.0)',
+  test.e_rank(160, :ER) = 'Maharaj' and test.e_rank(162, :ER) = 'Maharaj');
+select test.check('E: average above 95 loses Maharaj -> Raja (day 163: 95.2)',
+  test.e_rank(163, :ER) = 'Raja');
+select test.check('E: back under 94 must be held 28 days again (from day 175): Raja on day 201, Maharaj on day 202',
+  test.e_rank(201, :ER) = 'Raja' and test.e_rank(202, :ER) = 'Maharaj');
+select test.check('E: Chakravarti Samrat on the first day with 7,500 points and average <= 85 (day 259)',
+  test.e_rank(258, :ER) = 'Maharaj' and test.e_rank(259, :ER) = 'Chakravarti Samrat', test.e_total(259, :ER)::text);
+select test.check('E: average up to 86 keeps Chakravarti Samrat (day 341: 85.97)',
+  test.e_rank(340, :ER) = 'Chakravarti Samrat' and test.e_rank(341, :ER) = 'Chakravarti Samrat');
+select test.check('E: average above 86 loses it -> Maharaj (still held 28 days at <= 94) (day 342)',
+  test.e_rank(342, :ER) = 'Maharaj');
+select test.check('E: Chakravarti Samrat again once the average is <= 85 (day 355), not before (day 354)',
+  test.e_rank(354, :ER) = 'Maharaj' and test.e_rank(355, :ER) = 'Chakravarti Samrat');
+select test.check('E: Vikramaditya on the first day with 12,000 points (day 420; <= 85 held since day 355)',
+  test.e_rank(419, :ER) = 'Chakravarti Samrat' and test.e_rank(420, :ER) = 'Vikramaditya', test.e_total(420, :ER)::text);
+select test.check('E: current rank Vikramaditya, no next rank',
+  :ER::jsonb->>'rank' = 'Vikramaditya' and :ER::jsonb->'next_rank' = 'null'::jsonb);
+select test.check('E: 7-day average reported (84)', (:ER::jsonb->>'avg7_kg')::numeric = 84);
+
+-- Access rules.
+select test.run('get_my_points: owner gets their own report', 'authenticated', :C,
+  $q$select public.get_my_points()$q$, null, 1);
+select test.run('get_my_points: visitor cannot call it', 'anon', null, $q$select public.get_my_points()$q$, 'permission denied');
+select test.run('points_report is private (website cannot call it)', 'authenticated', :C,
+  format($q$select private.points_report(%L)$q$, :E), 'permission denied');
+select test.run('points_rules is private', 'authenticated', :C, $q$select private.points_rules()$q$, 'permission denied');
+select test.run('points start date: owner cannot change it', 'authenticated', :A,
+  $q$update public.points_settings set start_date = '2000-01-01'$q$, 'permission denied');
+select test.run('points start date: owner cannot add one', 'authenticated', :C,
+  $q$insert into public.points_settings (start_date) values ('2000-01-01')$q$, 'permission denied');
+select test.run('points start date: visitor cannot read it', 'anon', null, $q$select * from public.points_settings$q$, 'permission denied');
+select test.check('no start date set = nothing counted yet (start is tomorrow), rank Sainik',
+  (select (r->>'total')::int = 0 and r->>'rank' = 'Sainik' and jsonb_array_length(r->'days') = 0 from private.points_report(:E) r));
+
 -- ---------- Share page: the only door for logged-out viewers ----------
 -- State here: owner A has four confirmed days (d1 = 2026-10-01, d4 = today, two gym days in Sept) and one unconfirmed (tomorrow).
 -- d1 has: food Dal 210 kcal (protein 14), water 500 ml, maad water 250 ml 40 kcal, cardio brisk walk 30 min,
@@ -538,6 +716,11 @@ select test.check('share shows only confirmed days (4), newest first',
   and (select public.get_shared_progress(:T)->'days'->2->>'date') = '2026-09-21'
   and (select public.get_shared_progress(:T)->'days'->3->>'date') = '2026-09-20',
   (select public.get_shared_progress(:T)::text));
+select test.check('share page top level: only the days and the rank (no points, no weights)',
+  (select array_agg(k order by k) from jsonb_object_keys(public.get_shared_progress(:T)) k) = array['days', 'rank'],
+  (select string_agg(k, ',') from jsonb_object_keys(public.get_shared_progress(:T)) k));
+select test.check('share page rank is the owner''s rank (Sainik: no start date yet)',
+  public.get_shared_progress(:T)->>'rank' = 'Sainik');
 select test.check('unconfirmed (tomorrow) not shared',
   not exists (select 1 from jsonb_array_elements(public.get_shared_progress(:T)->'days') e
               where (e->>'date')::date > (now() at time zone 'Asia/Kolkata')::date));

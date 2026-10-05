@@ -1060,6 +1060,10 @@ a.button-link.secondary {
     display: none;
   }
 
+  .topbar .hide-narrow {
+    display: none;
+  }
+
   .topbar {
     padding: 10px 12px;
   }
@@ -1337,4 +1341,84 @@ a.button-link.secondary {
 .confirm-exercises {
   margin: 0;
   padding-left: 18px;
+}
+
+/* ---------- Points & rank ---------- */
+
+.rank-card {
+  align-items: flex-start;
+}
+
+.rank-name {
+  font-size: 1.5rem;
+}
+
+.points-total {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.points-days {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.points-day {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.points-day:last-child {
+  border-bottom: none;
+}
+
+.points-day p {
+  margin: 4px 0 0;
+}
+
+.points-items {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.points-amount {
+  display: inline-block;
+  min-width: 3.2em;
+  font-weight: 600;
+}
+
+/* Text colours with readable contrast; the sign (+/−) also carries the meaning. */
+.points-plus {
+  color: var(--success);
+  font-weight: 700;
+}
+
+.points-minus {
+  color: var(--error-fg);
+  font-weight: 700;
+}
+
+.rules-list {
+  padding-left: 18px;
+}
+
+.target-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.target-form input {
+  width: 100%;
+}
+
+.progress-table.rank-table td {
+  white-space: normal;
 }
