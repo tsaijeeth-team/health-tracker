@@ -1,5 +1,5 @@
 -- =====================================================================
--- Health Tracker: LIVE CHECK of the real database (build steps 4, 11 and food units)
+-- Health Tracker: LIVE CHECK of the real database (build steps 4, 11, 12 and food units)
 --
 -- Run in Supabase: SQL Editor -> New query -> paste ALL -> Run.
 -- Do not highlight part of it: the editor would run only the highlighted part.
@@ -35,6 +35,7 @@ declare
   val        text;
   v_token    text;
   ok         boolean;
+  v_ex       uuid;
 begin
   -- Safety: there must be exactly one user (you), and the test dates must be unused.
   select count(*) into n from auth.users;
@@ -285,7 +286,44 @@ begin
     end if;
   end;
 
-  -- ---- 34-36. Share page, as a logged-out visitor ----
+  -- ---- 34-37. Gym log (006, step 12) ----
+  begin
+    insert into public.exercises (name) values ('TEST live check exercise') returning id into v_ex;
+    perform public.save_gym_session(future_day, '18:00', array['chest'],
+      jsonb_build_array(jsonb_build_object('exercise_id', v_ex, 'sets',
+        jsonb_build_array(jsonb_build_object('reps', 10, 'weight_kg', 40)))));
+    passed := passed + 1;
+  exception when others then
+    failures := failures || ('could not save a gym session (did you run 006_gym.sql?): ' || sqlerrm);
+  end;
+  begin
+    insert into public.gym_sessions (day_id, start_time, muscle_groups) values (future_day, '07:00', array['legs']);
+    failures := failures || 'a second gym session on the same day was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%gym_one_session_per_day%' then passed := passed + 1;
+    else failures := failures || ('second gym session blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    insert into public.exercises (name) values ('  test LIVE check   exercise ');
+    failures := failures || 'a duplicate exercise name was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%exercises_unique_name%' then passed := passed + 1;
+    else failures := failures || ('duplicate exercise blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    perform public.save_gym_session(test_day, '18:00', array['chest'],
+      jsonb_build_array(jsonb_build_object('exercise_id', v_ex, 'sets',
+        jsonb_build_array(jsonb_build_object('reps', 10, 'weight_kg', 40)))));
+    failures := failures || 'locked: a gym session was added to a confirmed day'::text;
+  exception when others then
+    if sqlerrm ilike '%locked%' then passed := passed + 1;
+    else failures := failures || ('locked gym session blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+
+  -- ---- 38-40. Share page, as a logged-out visitor ----
   reset role;
   perform set_config('request.jwt.claim.sub', '', true);
   perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
@@ -314,7 +352,7 @@ begin
   exception when others then passed := passed + 1;
   end;
 
-  -- ---- 37-38. Switching a link off is immediate and permanent ----
+  -- ---- 41-42. Switching a link off is immediate and permanent ----
   reset role;
   perform set_config('request.jwt.claim.sub', owner_id::text, true);
   perform set_config('request.jwt.claims', json_build_object('sub', owner_id, 'role', 'authenticated')::text, true);
@@ -335,7 +373,7 @@ begin
 
   -- ---- Report (stops the transaction on purpose, so nothing is saved) ----
   if cardinality(failures) = 0 then
-    raise exception 'LIVE CHECK PASSED: % of 38 checks passed. Everything was undone; nothing was saved.', passed;
+    raise exception 'LIVE CHECK PASSED: % of 42 checks passed. Everything was undone; nothing was saved.', passed;
   else
     raise exception 'LIVE CHECK FAILED: % passed, % failed: %. Nothing was saved.',
       passed, cardinality(failures), array_to_string(failures, ' | ');

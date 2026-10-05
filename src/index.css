@@ -90,7 +90,8 @@ label {
   font-size: 0.95rem;
 }
 
-input {
+input,
+select {
   font: inherit;
   font-size: 1rem; /* 16px stops phones zooming in on focus */
   padding: 12px;
@@ -1088,4 +1089,201 @@ a.button-link.secondary {
 .grams-preview {
   margin: 0;
   font-weight: 600;
+}
+/* ---------- Gym card (inside Workout) ---------- */
+
+.gym-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.gym-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.gym-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.gym-summary p {
+  margin: 0 0 6px;
+}
+
+.gym-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.gym-exercise {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.set-row {
+  display: grid;
+  grid-template-columns: 3.4em minmax(0, 1fr) auto minmax(0, 1fr) auto 2.6em;
+  align-items: center;
+  gap: 6px;
+}
+
+.subpanel .set-row input[type='text'] {
+  width: 100%;
+  min-width: 0;
+  background: var(--surface);
+}
+
+.set-row button.link {
+  padding: 8px 0;
+}
+
+.gym-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gym-picker .recent-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+/* ---------- Progress graphs ---------- */
+
+:root {
+  --series-1: #2a78d6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --series-1: #3987e5;
+  }
+}
+
+.chart {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chart + .chart {
+  margin-top: 8px;
+}
+
+.chart-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.chart-box {
+  position: relative;
+}
+
+.chart-box svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: pan-y;
+  overflow: visible;
+}
+
+.chart-grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-axis {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+.chart-crosshair {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.chart-line {
+  fill: none;
+  stroke: var(--series-1);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-dot {
+  fill: var(--series-1);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+.chart-end-label {
+  fill: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chart-tooltip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  max-width: 180px;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.15);
+  pointer-events: none;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.progress-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.progress-table th,
+.progress-table td {
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+
+.progress-table th {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.progress-table td {
+  white-space: nowrap;
+}
+
+.progress-table .set-line {
+  display: block;
 }

@@ -9,6 +9,7 @@
 --   psql -d t -f supabase/migrations/003_other_descriptions.sql
 --   psql -d t -f supabase/migrations/004_share_function.sql
 --   psql -d t -f supabase/migrations/005_food_units.sql
+--   psql -d t -f supabase/migrations/006_gym.sql
 --   psql -d t -f supabase/tests/lock_tests.sql
 
 \set ON_ERROR_STOP 1
@@ -330,6 +331,104 @@ select test.check('share token is 64 random hex characters',
 select test.run('intruder sees no share links', 'authenticated', :B,
   $q$select * from public.share_links$q$, null, 0);
 
+-- ---------- Gym log ----------
+-- d6 = an unlocked past day for gym tests (confirmed later in this section).
+\set d6 '''11111111-0000-0000-0000-000000000006'''
+select test.run('owner creates a gym day', 'authenticated', :A,
+  $q$insert into public.days (id, log_date) values ('11111111-0000-0000-0000-000000000006', '2026-09-20')$q$, null, 1);
+select test.run('owner saves an exercise', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('Bench press')$q$, null, 1);
+select test.run('duplicate exercise name rejected (case and spaces ignored)', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('  bench   PRESS ')$q$, 'exercises_unique_name');
+select test.run('exercise name over 60 characters rejected', 'authenticated', :A,
+  $q$insert into public.exercises (name) values (repeat('x', 61))$q$, 'exercises_name_check');
+select test.run('owner saves a bodyweight exercise', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('Pull-up')$q$, null, 1);
+select test.run('intruder may have the same name in their own list', 'authenticated', :B,
+  $q$insert into public.exercises (name) values ('Bench press')$q$, null, 1);
+select test.run('intruder sees only their own exercise', 'authenticated', :B,
+  $q$select * from public.exercises$q$, null, 1);
+select test.run('saved exercises cannot be renamed (locked days keep their names)', 'authenticated', :A,
+  $q$update public.exercises set name = 'Changed'$q$, 'permission denied');
+select test.run('saved exercises cannot be deleted', 'authenticated', :A,
+  $q$delete from public.exercises$q$, 'permission denied');
+
+select id as bench from public.exercises where name = 'Bench press' and user_id = '00000000-0000-0000-0000-00000000000a' \gset
+select id as pullup from public.exercises where name = 'Pull-up' \gset
+select id as b_bench from public.exercises where user_id = '00000000-0000-0000-0000-00000000000b' \gset
+
+select test.run('owner saves a whole session', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '18:30', array['chest','arms'],
+    jsonb_build_array(
+      jsonb_build_object('exercise_id', %L, 'note', 'felt strong', 'sets', jsonb_build_array(
+        jsonb_build_object('reps', 10, 'weight_kg', 40), jsonb_build_object('reps', 8, 'weight_kg', 42.5), jsonb_build_object('reps', 6, 'weight_kg', 45))),
+      jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 8, 'weight_kg', 0))))
+  )$q$, :d6, :'bench', :'pullup'), null, 1);
+select test.check('session stored: 2 exercises, 4 sets, note kept',
+  (select count(*) from public.gym_exercises g join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 2
+  and (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 4
+  and exists (select 1 from public.gym_exercises where note = 'felt strong'));
+select test.run('second session on the same day rejected by the database', 'authenticated', :A,
+  format($q$insert into public.gym_sessions (day_id, start_time, muscle_groups) values (%L, '07:00', array['legs'])$q$, :d6), 'gym_one_session_per_day');
+select test.run('saving again edits the same session (still one per day)', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'],
+    jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(
+      jsonb_build_object('reps', 5, 'weight_kg', 50), jsonb_build_object('reps', 5, 'weight_kg', 50), jsonb_build_object('reps', 5, 'weight_kg', 50)))))$q$, :d6, :'bench'), null, 1);
+select test.check('one session, 1 exercise, 3 sets after editing',
+  (select count(*) from public.gym_sessions where day_id = :d6) = 1
+  and (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 3
+  and (select start_time from public.gym_sessions where day_id = :d6) = '19:00');
+select test.run('save with no exercises refused', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], '[]'::jsonb)$q$, :d6), 'at least one exercise');
+select test.run('save with an exercise but no sets refused', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', '[]'::jsonb)))$q$, :d6, :'bench'), 'at least one set');
+select test.check('a refused save changes nothing (all or nothing)',
+  (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 3);
+select test.run('reps 0 rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 0, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'gym_sets_reps_check');
+select test.run('reps 101 rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 101, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'gym_sets_reps_check');
+select test.run('weight 500.01 kg rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 500.01)))))$q$, :d6, :'bench'), 'gym_sets_weight_kg_check');
+select test.run('weight with 3 decimals rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40.125)))))$q$, :d6, :'bench'), 'gym_sets_weight_kg_check');
+select test.run('unknown muscle group rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['neck'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'muscle_groups');
+select test.run('no muscle group rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array[]::text[], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'muscle_groups');
+select test.run('the same exercise twice in one session rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(
+    jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40))),
+    jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'bench', :'bench'), 'gym_exercise_once_per_session');
+select test.run('owner cannot use someone else''s exercise', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'b_bench'), 'row-level security');
+select test.run('intruder cannot save into owner''s day', 'authenticated', :B,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'b_bench'), 'row-level security');
+select test.run('intruder sees no gym sessions', 'authenticated', :B, $q$select * from public.gym_sessions$q$, null, 0);
+select test.run('intruder sees no gym sets', 'authenticated', :B, $q$select * from public.gym_sets$q$, null, 0);
+select test.run('visitor cannot read exercises', 'anon', null, $q$select * from public.exercises$q$, 'permission denied');
+select test.run('visitor cannot read gym sets', 'anon', null, $q$select * from public.gym_sets$q$, 'permission denied');
+select test.run('visitor cannot call save_gym_session', 'anon', null,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], '[]'::jsonb)$q$, :d6), 'permission denied');
+
+-- Lock: confirm the gym day, then every change must be refused.
+select test.run('owner confirms the gym day', 'authenticated', :A,
+  $q$update public.days set confirmed_at = now() where id = '11111111-0000-0000-0000-000000000006'$q$, null, 1);
+select test.run('locked: cannot save the session again', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '20:00', array['legs'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'locked');
+select test.run('locked: cannot change a set', 'authenticated', :A,
+  $q$update public.gym_sets set weight_kg = 100$q$, 'locked');
+select test.run('locked: cannot delete a set', 'authenticated', :A,
+  $q$delete from public.gym_sets$q$, 'locked');
+select test.run('locked: cannot add a set', 'authenticated', :A,
+  $q$insert into public.gym_sets (entry_id, set_number, reps, weight_kg) select id, 9, 5, 40 from public.gym_exercises limit 1$q$, 'locked');
+select test.run('locked: cannot change an exercise note', 'authenticated', :A,
+  $q$update public.gym_exercises set note = 'changed'$q$, 'locked');
+select test.run('locked: cannot delete the session', 'authenticated', :A,
+  format($q$delete from public.gym_sessions where day_id = %L$q$, :d6), 'locked');
+select test.run('dashboard: cannot change a locked set', 'postgres', null,
+  $q$update public.gym_sets set reps = 1$q$, 'locked');
+
 -- ---------- Share page: the only door for logged-out viewers ----------
 -- State here: owner A has two confirmed days (d1 = 2026-10-01, d4 = today) and one unconfirmed (tomorrow).
 -- d1 has: food Dal 210 kcal (protein 14), water 500 ml, maad water 250 ml 40 kcal, cardio brisk walk 30 min,
@@ -339,9 +438,10 @@ select token as share_token from public.share_links where label = 'Family' \gset
 
 select test.run('visitor can call the share function', 'anon', null,
   format('select public.get_shared_progress(%L)', :'share_token'), null, 1);
-select test.check('share shows only confirmed days (2), newest first',
-  (select jsonb_array_length(public.get_shared_progress(:T)->'days')) = 2
-  and (select public.get_shared_progress(:T)->'days'->1->>'date') = '2026-10-01',
+select test.check('share shows only confirmed days (3), newest first',
+  (select jsonb_array_length(public.get_shared_progress(:T)->'days')) = 3
+  and (select public.get_shared_progress(:T)->'days'->1->>'date') = '2026-10-01'
+  and (select public.get_shared_progress(:T)->'days'->2->>'date') = '2026-09-20',
   (select public.get_shared_progress(:T)::text));
 select test.check('unconfirmed (tomorrow) not shared',
   not exists (select 1 from jsonb_array_elements(public.get_shared_progress(:T)->'days') e
@@ -359,6 +459,9 @@ select test.check('shared totals for 1 Oct: 210 kcal food, 750 ml fluids, 40 kca
       and (e->'fluids'->>'kcal')::numeric = 40 and (e->'cardio'->0->>'minutes')::int = 30
       and e->>'bedtime' = '23:30' and (e->>'sleep_minutes')::int = 450 and (e->>'junk_meals')::int = 1
    from jsonb_array_elements(public.get_shared_progress(:T)->'days') e where e->>'date' = '2026-10-01'),
+  (select public.get_shared_progress(:T)::text));
+select test.check('gym data is not shared (not on the allowed list)',
+  (select public.get_shared_progress(:T)::text) !~* '(gym|bench|exercise|reps|weight_kg": 4|felt strong)',
   (select public.get_shared_progress(:T)::text));
 select test.check('wrong token returns nothing',
   public.get_shared_progress(repeat('a', 64)) is null);
