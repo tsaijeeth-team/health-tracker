@@ -140,6 +140,23 @@ The database works out "today" with its own clock, not the phone's.
   (.csv, one row per day, blanks stay blank). Files stay on the device. Reads all rows in pages of 1,000.
 - "Last export: N days ago" (remembered per device), amber ⚠ after 7 days or if never exported on this device.
 
+## Security (step 11)
+
+- Secret scan of the entire git history: no keys, passwords or tokens ever committed; `.env.example` never had values.
+- `npm audit`: 0 known vulnerabilities (re-run before each release).
+- No risky code patterns (no raw HTML injection, no eval, no logging of data).
+- Server headers (vercel.json) on every page: Content-Security-Policy (only this site's code; data only to this
+  Supabase project; no eval; no framing), X-Robots-Tag noindex, Referrer-Policy no-referrer, X-Frame-Options DENY,
+  X-Content-Type-Options nosniff, Permissions-Policy (no camera/mic/location/payment/usb), HSTS.
+- CSP tested: all browser test suites pass with zero violations; injected code, foreign scripts and sending data to
+  other sites are blocked and reported.
+- Live check (`supabase/live_check.sql`, 34 checks, rollback only) includes a read-only security audit of the real
+  database: every table has owner-only rules, visitors can reach no table, visitors can call only
+  `get_shared_progress`, private helpers unreachable, privileged functions have a fixed search path.
+- Known, accepted limits: the share token appears in Vercel's request logs (only the owner's Vercel account sees them);
+  the database owner can still change rules in the Supabase dashboard; export files are unencrypted health data and
+  must be kept private.
+
 ## Share page (read-only, confirmed days only)
 
 - **Shown:** weight, food totals (including drink kcal), fluid totals (water / sugary / total vs 4 L), steps, cardio, sleep times, junk meals.
@@ -187,12 +204,15 @@ The owner joins the gym on 19 Oct 2026, so this step must be merged and live by 
 
 **Points:** a logged gym session earns +10 points (points step).
 
-**Open questions (decide before building step 12):**
-- Estimated 1-rep max formula. Proposal: Epley, weight × (1 + reps ÷ 30), from the best set of the session.
-- "Top set" definition. Proposal: heaviest weight in the session; ties go to the set with more reps.
-- Bodyweight exercises (e.g. pull-ups, push-ups) have 0 kg, so volume and 1-rep max would be 0.
-  Proposal: allow 0 kg and also chart total reps for those.
-- Does a gym session lock when its day is confirmed? Proposal: yes, same as food, drinks and cardio.
+**Decisions (owner, 5 Oct 2026):**
+1. **Estimated 1-rep max (e1RM):** Epley, weight × (1 + reps ÷ 30), using only sets with ≤ 10 reps.
+   A 1-rep set's e1RM is the weight lifted. The session's e1RM is the highest value among its eligible sets.
+   - If every set in a session has more than 10 reps, that session has no e1RM point (the e1RM graph shows a gap);
+     top set and volume are still shown for that session. (Confirmed by owner.)
+   - 0 kg (bodyweight) sets give no e1RM; they show total reps only. (Confirmed by owner.)
+2. **Top set:** the heaviest weight in the session; if tied, the set with more reps.
+3. **Bodyweight exercises:** 0 kg is allowed; their graph also shows total reps per session.
+4. **Locking:** a gym session locks when its day is confirmed (same as food, drinks and cardio).
 
 ## Not in version 1
 
@@ -209,6 +229,6 @@ Food database, charts (except the gym graph in step 12), points/rank system, lab
 7. Fluids + cardio: done
 8. Confirm & lock + notes: done
 9. Share links + read-only page: done
-10. PWA install + data export
+10. PWA install + data export: done
 11. Security check, go live
 12. Gym log + progressive overload graph (live by 18 Oct 2026)

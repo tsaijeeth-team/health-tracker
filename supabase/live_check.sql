@@ -1,5 +1,5 @@
 -- =====================================================================
--- Health Tracker: LIVE CHECK of the real database (build step 4)
+-- Health Tracker: LIVE CHECK of the real database (build steps 4 and 11)
 --
 -- Run in Supabase: SQL Editor -> New query -> paste ALL -> Run.
 -- Do not highlight part of it: the editor would run only the highlighted part.
@@ -33,6 +33,8 @@ declare
   err        text;
   n          int;
   val        text;
+  v_token    text;
+  ok         boolean;
 begin
   -- Safety: there must be exactly one user (you), and the test dates must be unused.
   select count(*) into n from auth.users;
@@ -193,9 +195,111 @@ begin
   exception when others then passed := passed + 1;
   end;
 
+  -- ---- 21-25. Security audit of the real database (read-only) ----
+  select count(*) into n from pg_class c join pg_namespace s on s.oid = c.relnamespace
+    where s.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity;
+  if n = 0 then passed := passed + 1; else failures := failures || (n || ' table(s) without owner-only rules')::text; end if;
+
+  select count(*) into n from pg_class c join pg_namespace s on s.oid = c.relnamespace
+    where s.nspname = 'public' and c.relkind in ('r', 'v', 'm')
+      and (has_table_privilege('anon', c.oid, 'select') or has_table_privilege('anon', c.oid, 'insert')
+        or has_table_privilege('anon', c.oid, 'update') or has_table_privilege('anon', c.oid, 'delete'));
+  if n = 0 then passed := passed + 1; else failures := failures || ('visitors have access to ' || n || ' table(s)')::text; end if;
+
+  select coalesce(string_agg(p.proname, ',' order by p.proname), '') into val
+    from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+    where s.nspname = 'public' and has_function_privilege('anon', p.oid, 'execute');
+  if val = 'get_shared_progress' then passed := passed + 1;
+  else failures := failures || ('visitors can call: [' || val || '] (expected only get_shared_progress)')::text; end if;
+
+  if not has_schema_privilege('anon', 'private', 'usage') and not has_schema_privilege('authenticated', 'private', 'usage') then
+    passed := passed + 1;
+  else failures := failures || 'private helpers are reachable from the website'::text; end if;
+
+  select count(*) into n from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+    where s.nspname in ('public', 'private') and p.prosecdef
+      and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) cfg where cfg like 'search_path=%');
+  if n = 0 then passed := passed + 1; else failures := failures || (n || ' privileged function(s) without a fixed search path')::text; end if;
+
+  -- ---- 26-29. Later data rules, as you ----
+  perform set_config('request.jwt.claim.sub', owner_id::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_id, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, fibre_total_g, fibre_soluble_g, fibre_insoluble_g)
+      values (future_day, 'lunch', 'TEST', 40, 'raw', 150, 4, 2, 2.5);
+    failures := failures || 'soluble + insoluble above total fibre was NOT blocked'::text;
+  exception when others then passed := passed + 1;
+  end;
+  begin
+    insert into public.fluids (day_id, drink_time, drink_type, ml, description) values (future_day, '10:00', 'water', 200, 'TEST');
+    failures := failures || 'description on water was NOT blocked'::text;
+  exception when others then passed := passed + 1;
+  end;
+  begin
+    insert into public.cardio_sessions (day_id, cardio_type, minutes, start_time, description) values (future_day, 'other', 30, '18:00', 'TEST');
+    passed := passed + 1;
+  exception when others then
+    failures := failures || ('could not add cardio "Other" with a description: ' || sqlerrm);
+  end;
+  begin
+    insert into public.share_links (label) values ('TEST live check') returning token into v_token;
+    passed := passed + 1;
+  exception when others then
+    failures := failures || ('could not create a share link: ' || sqlerrm);
+  end;
+
+  -- ---- 30-32. Share page, as a logged-out visitor ----
+  reset role;
+  perform set_config('request.jwt.claim.sub', '', true);
+  perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
+  set local role anon;
+  begin
+    select exists (select 1 from jsonb_array_elements(public.get_shared_progress(v_token)->'days') e where e->>'date' = '2000-01-01')
+       and not exists (select 1 from jsonb_array_elements(public.get_shared_progress(v_token)->'days') e where e->>'date' = '2099-12-31')
+      into ok;
+    if ok then passed := passed + 1;
+    else failures := failures || 'share page did not show exactly the confirmed test day'::text; end if;
+  exception when others then
+    failures := failures || ('visitor could not use the share link: ' || sqlerrm);
+  end;
+  begin
+    select coalesce(bool_and((select array_agg(k order by k) from jsonb_object_keys(e) k) =
+        array['bedtime','cardio','date','fluids','food','junk_meals','sleep_minutes','steps','wake_time','weight_kg']), true)
+      into ok from jsonb_array_elements(public.get_shared_progress(v_token)->'days') e;
+    if ok then passed := passed + 1;
+    else failures := failures || 'share page returned fields outside the allowed list'::text; end if;
+  exception when others then
+    failures := failures || ('share field check failed: ' || sqlerrm);
+  end;
+  begin
+    perform 1 from public.share_links;
+    failures := failures || 'visitor could read share links'::text;
+  exception when others then passed := passed + 1;
+  end;
+
+  -- ---- 33-34. Switching a link off is immediate and permanent ----
+  reset role;
+  perform set_config('request.jwt.claim.sub', owner_id::text, true);
+  perform set_config('request.jwt.claims', json_build_object('sub', owner_id, 'role', 'authenticated')::text, true);
+  set local role authenticated;
+  begin
+    update public.share_links set revoked_at = now() where token = v_token;
+    if public.get_shared_progress(v_token) is null then passed := passed + 1;
+    else failures := failures || 'switched-off link still works'::text; end if;
+  exception when others then
+    failures := failures || ('could not switch off the link: ' || sqlerrm);
+  end;
+  begin
+    update public.share_links set revoked_at = null where token = v_token;
+    failures := failures || 'a switched-off link could be re-activated'::text;
+  exception when others then passed := passed + 1;
+  end;
+  reset role;
+
   -- ---- Report (stops the transaction on purpose, so nothing is saved) ----
   if cardinality(failures) = 0 then
-    raise exception 'LIVE CHECK PASSED: % of 20 checks passed. Everything was undone; nothing was saved.', passed;
+    raise exception 'LIVE CHECK PASSED: % of 34 checks passed. Everything was undone; nothing was saved.', passed;
   else
     raise exception 'LIVE CHECK FAILED: % passed, % failed: %. Nothing was saved.',
       passed, cardinality(failures), array_to_string(failures, ' | ');
