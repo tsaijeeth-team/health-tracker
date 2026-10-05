@@ -349,3 +349,236 @@ input:disabled,
 .chip:disabled {
   opacity: 0.6;
 }
+
+/* ---------- Food ---------- */
+
+:root {
+  --amber: #b26a00;
+  --red: #c4320a;
+  --green: #1f7a4d;
+  --track: #e4e4df;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --amber: #f0b45b;
+    --red: #ff7a59;
+    --green: #3fae78;
+    --track: #33332f;
+  }
+}
+
+.kcal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kcal-numbers {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.kcal-numbers strong {
+  font-size: 1.4rem;
+}
+
+.kcal-note {
+  margin-left: auto;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.kcal-note.green { color: var(--green); }
+.kcal-note.amber { color: var(--amber); }
+.kcal-note.red { color: var(--red); }
+
+.kcal-track {
+  height: 12px;
+  border-radius: 999px;
+  background: var(--track);
+  overflow: hidden;
+}
+
+.kcal-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.kcal-fill.green { background: var(--green); }
+.kcal-fill.amber { background: var(--amber); }
+.kcal-fill.red { background: var(--red); }
+
+.kcal-warning {
+  margin: 0;
+  color: var(--red);
+  font-weight: 600;
+}
+
+.totals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.totals div {
+  display: flex;
+  flex-direction: column;
+}
+
+.totals dt {
+  color: var(--muted);
+}
+
+.totals dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.meal-group h3,
+.subpanel h3 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.food-list,
+.recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.food-item,
+.recent-item {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.food-item.editing {
+  border-color: var(--accent);
+}
+
+.food-item:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.food-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.food-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.food-kcal {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--amber);
+  border: 1px solid var(--amber);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+.button-row button {
+  flex: 1;
+}
+
+button.danger {
+  color: var(--red);
+  background: transparent;
+  border: 1px solid var(--red);
+}
+
+.subpanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+}
+
+.subpanel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.subpanel input[type='text'],
+.subpanel input[type='search'] {
+  width: 100%;
+}
+
+.note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  border-left: 3px solid var(--accent);
+}
+
+.chip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 4px;
+}
+
+.segmented.two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.two-col,
+.three-col {
+  display: grid;
+  gap: 8px;
+}
+
+.two-col {
+  grid-template-columns: 1fr 1fr;
+}
+
+.three-col {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+.two-col input,
+.three-col input {
+  min-width: 0;
+}
+
+.two-col .field-label,
+.three-col .field-label {
+  font-size: 0.85rem;
+}

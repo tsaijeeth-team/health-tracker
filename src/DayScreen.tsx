@@ -6,19 +6,11 @@ import {
   type DayForm, type DayRow, type FieldErrors, type TriState,
 } from './lib/dayForm'
 import { formatMinutes, sleepDuration } from './lib/sleep'
+import { friendlyError } from './lib/errors'
 import { Field, ScaleButtons, TextInput, TriStateButtons } from './components/inputs'
+import FoodSection from './FoodSection'
 
 const UNSAVED_WARNING = 'You have unsaved changes. Leave without saving them?'
-
-function friendlyError(message: string, code?: string): string {
-  if (/failed to fetch|network|load failed/i.test(message)) {
-    return "Can't reach the server. Check your internet connection and try again. Your entries are still on screen."
-  }
-  if (code === '23505') {
-    return 'This day was already saved from another tab or device. Reload the page to see it (your unsaved entries here will be lost).'
-  }
-  return `The database refused to save: ${message}`
-}
 
 function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: string }) {
   const [date, setDate] = useState(() => todayIST())
@@ -31,9 +23,11 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [justSaved, setJustSaved] = useState(false)
+  const [foodDirty, setFoodDirty] = useState(false)
   const requestId = useRef(0)
 
   const dirty = !formsEqual(form, savedForm)
+  const anyDirty = dirty || foodDirty
   const locked = Boolean(savedRow?.confirmed_at)
   const today = todayIST()
 
@@ -70,25 +64,46 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
 
   // Warn before closing or reloading the page with unsaved changes.
   useEffect(() => {
-    if (!dirty) return
+    if (!anyDirty) return
     const handler = (event: BeforeUnloadEvent) => {
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
-  }, [dirty])
+  }, [anyDirty])
 
   function goTo(newDate: string) {
     if (newDate === date || !isValidDate(newDate)) return
-    if (dirty && !window.confirm(UNSAVED_WARNING)) return
+    if (anyDirty && !window.confirm(UNSAVED_WARNING)) return
+    setFoodDirty(false)
     resetForLoad()
     setDate(newDate)
   }
 
   function logOut() {
-    if (dirty && !window.confirm(UNSAVED_WARNING)) return
+    if (anyDirty && !window.confirm(UNSAVED_WARNING)) return
     supabase.auth.signOut()
+  }
+
+  // Food needs a saved day to attach to. Creates an empty day row if there isn't one yet,
+  // without touching unsaved entries in the day form.
+  async function ensureDay(): Promise<string> {
+    if (savedRow) return savedRow.id
+    const inserted = await supabase.from('days').insert({ log_date: date }).select().single()
+    if (!inserted.error) {
+      setSavedRow(inserted.data as DayRow)
+      return (inserted.data as DayRow).id
+    }
+    if (inserted.error.code === '23505') {
+      // Created meanwhile in another tab or device: use that one.
+      const existing = await supabase.from('days').select('*').eq('log_date', date).single()
+      if (!existing.error) {
+        setSavedRow(existing.data as DayRow)
+        return (existing.data as DayRow).id
+      }
+    }
+    throw inserted.error
   }
 
   function update<K extends keyof DayForm>(key: K, value: DayForm[K]) {
@@ -219,6 +234,15 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
               <h2>Body</h2>
               {numberField('weight_kg', 'Morning weight', 'kg, 1 decimal', 'decimal', 'e.g. 82.4')}
             </section>
+
+            <FoodSection
+              key={date}
+              supabase={supabase}
+              dayId={savedRow?.id ?? null}
+              locked={locked}
+              ensureDay={ensureDay}
+              onDirtyChange={setFoodDirty}
+            />
 
             <section className="card">
               <h2>Sleep</h2>
