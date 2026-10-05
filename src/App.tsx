@@ -6,8 +6,18 @@ import DayScreen from './DayScreen'
 import ShareScreen from './ShareScreen'
 import SharePage from './SharePage'
 import { tokenFromPath } from './lib/share'
+import OfflineBanner from './OfflineBanner'
 
 function App() {
+  return (
+    <>
+      <OfflineBanner />
+      <Screens />
+    </>
+  )
+}
+
+function Screens() {
   // A /share/<token> address shows the read-only viewer page: no login, nothing editable.
   const shareToken = tokenFromPath(window.location.pathname)
   if (shareToken !== null) {

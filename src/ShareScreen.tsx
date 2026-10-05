@@ -4,6 +4,31 @@ import { EXPIRY_OPTIONS, expiresAt, linkStatus, shareUrl, type ExpiryChoice, typ
 import { formatDateTimeIST } from './lib/confirm'
 import { friendlyError } from './lib/errors'
 import { Field } from './components/inputs'
+import { todayIST } from './lib/dates'
+import {
+  BACKUP_TABLES, EXPORT_NUDGE_DAYS, LAST_EXPORT_KEY, SUMMARY_COLUMNS,
+  buildBackup, dailySummary, daysSince, exportFileName, fetchAllRows, toCsv,
+  type BackupData,
+} from './lib/export'
+
+// Remembered on this device only. Reading it can fail in private mode, so never let it break the page.
+function readLastExport(): string | null {
+  try { return window.localStorage.getItem(LAST_EXPORT_KEY) } catch { return null }
+}
+function writeLastExport(iso: string) {
+  try { window.localStorage.setItem(LAST_EXPORT_KEY, iso) } catch { /* ignore */ }
+}
+
+function download(content: string, fileName: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 
 // The owner's page for creating, copying and revoking read-only share links.
 function ShareScreen({ supabase, email, onBack }: { supabase: SupabaseClient; email: string; onBack: () => void }) {
@@ -14,6 +39,9 @@ function ShareScreen({ supabase, email, onBack }: { supabase: SupabaseClient; em
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<'backup' | 'daily' | null>(null)
+  const [exportError, setExportError] = useState('')
+  const [lastExport, setLastExport] = useState<string | null>(() => readLastExport())
 
   const load = useCallback(async () => {
     const { data, error: err } = await supabase
@@ -69,10 +97,39 @@ function ShareScreen({ supabase, email, onBack }: { supabase: SupabaseClient; em
     await load()
   }
 
+  async function exportData(kind: 'backup' | 'daily') {
+    setExporting(kind)
+    setExportError('')
+    try {
+      const entries = await Promise.all(BACKUP_TABLES.map(async (table) => {
+        const rows = await fetchAllRows((from, to) => supabase.from(table).select('*').order('created_at').range(from, to))
+        return [table, rows] as const
+      }))
+      const data = Object.fromEntries(entries) as BackupData
+      const now = new Date()
+      const date = todayIST(now)
+      if (kind === 'backup') {
+        download(JSON.stringify(buildBackup(data, now), null, 2), exportFileName('backup', date), 'application/json')
+      } else {
+        download(toCsv(dailySummary(data), SUMMARY_COLUMNS), exportFileName('daily', date), 'text/csv;charset=utf-8')
+      }
+      writeLastExport(now.toISOString())
+      setLastExport(now.toISOString())
+    } catch (e) {
+      const err = e as { message?: string; code?: string }
+      setExportError(friendlyError(err.message ?? String(e), err.code).replace('refused to save', 'could not export'))
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  const sinceExport = daysSince(lastExport)
+  const exportStale = sinceExport === null || sinceExport >= EXPORT_NUDGE_DAYS
+
   return (
     <div className="app">
       <header className="topbar">
-        <strong>Share</strong>
+        <strong>Share &amp; backup</strong>
         <div className="topbar-right">
           <span className="muted small email">{email}</span>
           <button type="button" className="secondary small-button" onClick={onBack}>← Back</button>
@@ -102,6 +159,34 @@ function ShareScreen({ supabase, email, onBack }: { supabase: SupabaseClient; em
           </Field>
           {error && <p className="error small" role="alert">{error}</p>}
           <button type="button" onClick={create} disabled={busy}>{busy ? 'Working…' : 'Create link'}</button>
+        </section>
+
+        <section className="card">
+          <h2>Backup: export my data</h2>
+          <p className="small muted">
+            The free database plan keeps no backups you can restore, so these files are your backup.
+            They are saved to this device only; nothing is uploaded.
+          </p>
+          <p className={exportStale ? 'warning small' : 'export-ok small'} aria-live="polite">
+            {sinceExport === null
+              ? 'No export from this device yet.'
+              : sinceExport === 0
+                ? 'Last export: today.'
+                : `Last export: ${sinceExport} day${sinceExport === 1 ? '' : 's'} ago.`}
+          </p>
+          <div className="button-row">
+            <button type="button" onClick={() => exportData('backup')} disabled={exporting !== null}>
+              {exporting === 'backup' ? 'Preparing…' : 'Full backup (.json)'}
+            </button>
+            <button type="button" className="secondary" onClick={() => exportData('daily')} disabled={exporting !== null}>
+              {exporting === 'daily' ? 'Preparing…' : 'Daily summary (.csv)'}
+            </button>
+          </div>
+          <p className="small muted">
+            Full backup: everything, including notes. Daily summary: one row per day for Excel or Google Sheets.
+            Keep both files private.
+          </p>
+          {exportError && <p className="error small" role="alert">{exportError}</p>}
         </section>
 
         <section className="card">

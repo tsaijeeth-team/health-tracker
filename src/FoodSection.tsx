@@ -52,7 +52,7 @@ function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange, drinkK
     if (req !== requestId.current) return
     setLoading(false)
     if (error) {
-      setLoadError(friendlyError(error.message, error.code))
+      setLoadError(friendlyError(error.message, error.code, true))
       return
     }
     setLoadError('')
