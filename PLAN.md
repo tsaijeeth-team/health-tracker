@@ -89,6 +89,17 @@ The database works out "today" with its own clock, not the phone's.
   Unknown stays unknown. Changing a value by hand stops automatic scaling.
 - Fibre: soluble + insoluble cannot exceed total (checked in the app and in the database).
 
+## Fluids & cardio behaviour
+
+- Quick-add water buttons: +250 ml and +500 ml at the current India time.
+  (Sizes are placeholders until the owner confirms glass and bottle sizes.)
+- After a quick-add, "Added X ml — Undo" shows for 5 seconds; Undo removes that drink without a pop-up.
+- New drinks and cardio sessions default to the current India time (editable).
+- 4 L bar counts all drinks; sugary drinks also shown as their own total.
+- Drink kcal (maad water, sugary drink, other) is added to the 2,000 kcal bar. A blank kcal on those types is "unknown".
+- Drink type "Other" and cardio type "Other" have an optional description (max 100 characters).
+- Drinks and cardio save as soon as you tap Add or Update, like food.
+
 ## Share page (read-only, confirmed days only)
 
 - **Shown:** weight, food totals (including drink kcal), fluid totals (water / sugary / total vs 4 L), steps, cardio, sleep times, junk meals.
@@ -100,6 +111,7 @@ The database works out "today" with its own clock, not the phone's.
 - Setup files, each run once in the Supabase SQL Editor, in order:
   - `supabase/migrations/001_init.sql`
   - `supabase/migrations/002_fibre_sum.sql`
+  - `supabase/migrations/003_other_descriptions.sql`
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
 - Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 
@@ -114,7 +126,7 @@ Food database, charts, gym log, points/rank system, lab results, reminders, offl
 3. Database tables + security rules: done
 4. Login (owner only): done
 5. Day screen: body, sleep, stress, steps: done
-6. Food log + kcal bar
+6. Food log + kcal bar: done
 7. Fluids + cardio
 8. Confirm & lock + notes
 9. Share links + read-only page

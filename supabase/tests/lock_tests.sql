@@ -6,6 +6,7 @@
 --   psql -d t -f supabase/tests/supabase_stub.sql
 --   psql -d t -f supabase/migrations/001_init.sql
 --   psql -d t -f supabase/migrations/002_fibre_sum.sql
+--   psql -d t -f supabase/migrations/003_other_descriptions.sql
 --   psql -d t -f supabase/tests/lock_tests.sql
 
 \set ON_ERROR_STOP 1
@@ -131,6 +132,18 @@ select test.run('accepts soluble + insoluble equal to total', 'authenticated', :
   $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, fibre_total_g, fibre_soluble_g, fibre_insoluble_g) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Oats', 40, 'raw', 150, 4, 1.5, 2.5)$q$, null, 1);
 select test.run('accepts parts when total fibre is blank', 'authenticated', :A,
   $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, fibre_soluble_g, fibre_insoluble_g) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Oats', 40, 'raw', 150, 1, 2)$q$, null, 1);
+select test.run('drink "other" may have a description', 'authenticated', :A,
+  $q$insert into public.fluids (day_id, drink_time, drink_type, ml, kcal, description) values ('11111111-0000-0000-0000-000000000005', '10:00', 'other', 200, 45, 'coconut water')$q$, null, 1);
+select test.run('rejects description on water', 'authenticated', :A,
+  $q$insert into public.fluids (day_id, drink_time, drink_type, ml, description) values ('11111111-0000-0000-0000-000000000005', '10:00', 'water', 200, 'tap')$q$, 'fluids_description_only_for_other');
+select test.run('rejects blank-space description', 'authenticated', :A,
+  $q$insert into public.fluids (day_id, drink_time, drink_type, ml, description) values ('11111111-0000-0000-0000-000000000005', '10:00', 'other', 200, '   ')$q$, 'fluids_description_only_for_other');
+select test.run('rejects 101-character description', 'authenticated', :A,
+  $q$insert into public.cardio_sessions (day_id, cardio_type, minutes, start_time, description) values ('11111111-0000-0000-0000-000000000005', 'other', 30, '07:00', repeat('x', 101))$q$, 'cardio_description_only_for_other');
+select test.run('cardio "other" may have a description', 'authenticated', :A,
+  $q$insert into public.cardio_sessions (day_id, cardio_type, minutes, start_time, description) values ('11111111-0000-0000-0000-000000000005', 'other', 45, '18:00', 'badminton')$q$, null, 1);
+select test.run('rejects description on run', 'authenticated', :A,
+  $q$insert into public.cardio_sessions (day_id, cardio_type, minutes, start_time, description) values ('11111111-0000-0000-0000-000000000005', 'run', 20, '06:00', 'park')$q$, 'cardio_description_only_for_other');
 select test.run('rejects unknown data source', 'authenticated', :A,
   $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, data_source) values ('11111111-0000-0000-0000-000000000005', 'lunch', 'Egg', 50, 'raw', 70, 'guess')$q$, 'data_source');
 select test.run('rejects unknown cardio type', 'authenticated', :A,
@@ -200,6 +213,8 @@ select test.run('locked: cannot add cardio', 'authenticated', :A,
   $q$insert into public.cardio_sessions (day_id, cardio_type, minutes, start_time) values ('11111111-0000-0000-0000-000000000001', 'run', 10, '18:00')$q$, 'locked');
 select test.run('locked: cannot edit cardio', 'authenticated', :A,
   $q$update public.cardio_sessions set minutes = 99 where day_id = '11111111-0000-0000-0000-000000000001'$q$, 'locked');
+select test.run('locked: cannot change a drink description', 'authenticated', :A,
+  $q$update public.fluids set description = 'changed' where day_id = '11111111-0000-0000-0000-000000000001'$q$, 'locked');
 select test.run('locked: cannot delete cardio', 'authenticated', :A,
   $q$delete from public.cardio_sessions where day_id = '11111111-0000-0000-0000-000000000001'$q$, 'locked');
 
