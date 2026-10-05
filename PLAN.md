@@ -115,6 +115,7 @@ The database works out "today" with its own clock, not the phone's.
 
 - **Clean day** = junk meals = 0 AND porn = No AND gaming ≤ 2 h. If any of the three is blank, the day is not clean.
 - A day not confirmed within 7 days is penalised.
+- A logged gym session earns +10 points (see step 12).
 - **Open question:** exact 7-day boundary. The notice currently treats a day as "last day to confirm" when it is
   7 days old and overdue from 8 days old. Confirm or correct this before building points.
 
@@ -133,9 +134,36 @@ The database works out "today" with its own clock, not the phone's.
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
 - Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 
+## Step 12: Gym log + progressive overload graph (must be live by 18 Oct 2026)
+
+The owner joins the gym on 19 Oct 2026, so this step must be merged and live by 18 Oct.
+
+**Gym session**
+- Date, start time
+- Muscle groups (multi-select): chest, back, shoulders, arms, legs, core
+
+**Exercises**
+- Picked from a saved exercise list the owner can add to. No free-text duplicates
+  (e.g. "Bench press" and "bench press " count as the same exercise).
+- Each exercise in a session: sets, each with reps and weight (kg), plus an optional note per exercise.
+
+**Graph per exercise over time**
+- Top-set weight
+- Total volume = sum of sets × reps × weight
+- Estimated 1-rep max
+
+**Points:** a logged gym session earns +10 points (points step).
+
+**Open questions (decide before building step 12):**
+- Estimated 1-rep max formula. Proposal: Epley, weight × (1 + reps ÷ 30), from the best set of the session.
+- "Top set" definition. Proposal: heaviest weight in the session; ties go to the set with more reps.
+- Bodyweight exercises (e.g. pull-ups, push-ups) have 0 kg, so volume and 1-rep max would be 0.
+  Proposal: allow 0 kg and also chart total reps for those.
+- Does a gym session lock when its day is confirmed? Proposal: yes, same as food, drinks and cardio.
+
 ## Not in version 1
 
-Food database, charts, gym log, points/rank system, lab results, reminders, offline saving.
+Food database, charts (except the gym graph in step 12), points/rank system, lab results, reminders, offline saving.
 
 ## Build steps
 
@@ -150,3 +178,4 @@ Food database, charts, gym log, points/rank system, lab results, reminders, offl
 9. Share links + read-only page
 10. PWA install + data export
 11. Security check, go live
+12. Gym log + progressive overload graph (live by 18 Oct 2026)
