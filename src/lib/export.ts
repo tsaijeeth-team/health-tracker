@@ -18,7 +18,10 @@ export async function fetchAllRows(
   }
 }
 
-export const BACKUP_TABLES = ['days', 'food_items', 'fluids', 'cardio_sessions', 'day_notes'] as const
+export const BACKUP_TABLES = [
+  'days', 'food_items', 'fluids', 'cardio_sessions', 'day_notes',
+  'exercises', 'exercise_renames', 'gym_sessions', 'gym_exercises', 'gym_sets',
+] as const
 export type BackupTable = (typeof BACKUP_TABLES)[number]
 export type BackupData = Record<BackupTable, Row[]>
 
@@ -42,7 +45,7 @@ const KCAL_DRINKS = ['maad_water', 'sugary_drink', 'other']
 export const SUMMARY_COLUMNS = [
   'date', 'confirmed', 'weight_kg',
   'bedtime', 'wake_time', 'sleep_minutes', 'sleep_quality', 'snoring', 'gasping', 'afternoon_sleepiness', 'nap_minutes',
-  'steps', 'cardio_minutes',
+  'steps', 'cardio_minutes', 'gym_exercises', 'gym_sets', 'gym_volume_kg',
   'stress', 'energy', 'resting_pulse', 'gaming_hours', 'porn', 'naam_jaap', 'junk_meals',
   'food_items', 'food_kcal', 'drink_kcal', 'total_kcal', 'kcal_unknown_drinks',
   'protein_g', 'protein_unknown_items', 'carbs_g', 'carbs_unknown_items', 'fat_g', 'fat_unknown_items',
@@ -63,6 +66,19 @@ export function dailySummary(data: BackupData): Row[] {
   const fluids = byDay(data.fluids)
   const cardio = byDay(data.cardio_sessions)
   const notes = byDay(data.day_notes)
+  // Gym: session -> day, exercise entry -> session, set -> entry.
+  const sessionDay = new Map(data.gym_sessions.map((g) => [String(g.id), String(g.day_id)]))
+  const entryDay = new Map(data.gym_exercises.map((e) => [String(e.id), sessionDay.get(String(e.session_id))]))
+  const gymEntries = new Map<string, number>()
+  for (const e of data.gym_exercises) {
+    const day = sessionDay.get(String(e.session_id))
+    if (day) gymEntries.set(day, (gymEntries.get(day) ?? 0) + 1)
+  }
+  const gymSets = new Map<string, Row[]>()
+  for (const st of data.gym_sets) {
+    const day = entryDay.get(String(st.entry_id))
+    if (day) gymSets.set(day, [...(gymSets.get(day) ?? []), st])
+  }
   const sumKnown = (rows: Row[], key: string) => round2(rows.reduce((s, r) => s + (num(r[key]) ?? 0), 0))
   const unknown = (rows: Row[], key: string) => rows.filter((r) => r[key] === null).length
   const time = (v: unknown) => (v ? String(v).slice(0, 5) : null)
@@ -90,6 +106,9 @@ export function dailySummary(data: BackupData): Row[] {
         nap_minutes: d.nap_minutes,
         steps: d.steps,
         cardio_minutes: c.reduce((s, r) => s + (num(r.minutes) ?? 0), 0),
+        gym_exercises: gymEntries.get(id) ?? 0,
+        gym_sets: (gymSets.get(id) ?? []).length,
+        gym_volume_kg: round2((gymSets.get(id) ?? []).reduce((s, r) => s + (num(r.reps) ?? 0) * (num(r.weight_kg) ?? 0), 0)),
         stress: d.stress,
         energy: d.energy,
         resting_pulse: d.resting_pulse,

@@ -45,6 +45,15 @@ const data: BackupData = {
   ],
   cardio_sessions: [{ day_id: 'd1', minutes: 30 }, { day_id: 'd1', minutes: 15 }],
   day_notes: [{ day_id: 'd1', body: 'x' }],
+  exercises: [{ id: 'e1', name: 'Bench press' }, { id: 'e2', name: 'Pull-up' }],
+  exercise_renames: [{ exercise_id: 'e1', old_name: 'Bench', new_name: 'Bench press', renamed_at: '2026-10-04T10:00:00Z' }],
+  gym_sessions: [{ id: 's1', day_id: 'd1' }],
+  gym_exercises: [{ id: 'g1', session_id: 's1', exercise_id: 'e1' }, { id: 'g2', session_id: 's1', exercise_id: 'e2' }],
+  gym_sets: [
+    { entry_id: 'g1', reps: 8, weight_kg: 40 },
+    { entry_id: 'g1', reps: 6, weight_kg: 42.5 },
+    { entry_id: 'g2', reps: 10, weight_kg: 0 },
+  ],
 }
 
 test('daily summary: oldest first, honest totals, blanks stay blank', () => {
@@ -65,10 +74,14 @@ test('daily summary: oldest first, honest totals, blanks stay blank', () => {
   assert.equal(d.sugary_ml, 300)
   assert.equal(d.cardio_minutes, 45)
   assert.equal(d.notes, 1)
+  assert.equal(d.gym_exercises, 2)
+  assert.equal(d.gym_sets, 3)
+  assert.equal(d.gym_volume_kg, 575) // 8×40 + 6×42.5 + 10×0
   const empty = rows[1]
   assert.equal(empty.weight_kg, null)
   assert.equal(empty.junk_meals, null)
   assert.equal(empty.food_items, 0)
+  assert.equal(empty.gym_sets, 0)
 })
 
 test('CSV file: header + one line per day, blank cells for not answered', () => {
@@ -76,13 +89,13 @@ test('CSV file: header + one line per day, blank cells for not answered', () => 
   assert.ok(csv.startsWith('﻿date,confirmed,weight_kg,'))
   const lines = csv.trim().split('\r\n')
   assert.equal(lines.length, 3)
-  assert.ok(lines[1].startsWith('2026-10-04,yes,82.4,23:30,07:00,450,4,no,no,yes,0,9000,45,'))
-  assert.ok(lines[2].startsWith('2026-10-05,no,,,,,,,,,,,0,'))
+  assert.ok(lines[1].startsWith('2026-10-04,yes,82.4,23:30,07:00,450,4,no,no,yes,0,9000,45,2,3,575,'))
+  assert.ok(lines[2].startsWith('2026-10-05,no,,,,,,,,,,,0,0,0,0,'))
 })
 
 test('backup file: all tables, no share-link secrets, private note', () => {
   const b = buildBackup(data, new Date('2026-10-05T10:00:00Z'))
-  assert.deepEqual(Object.keys(b.tables).sort(), ['cardio_sessions', 'day_notes', 'days', 'fluids', 'food_items'])
+  assert.deepEqual(Object.keys(b.tables).sort(), ['cardio_sessions', 'day_notes', 'days', 'exercise_renames', 'exercises', 'fluids', 'food_items', 'gym_exercises', 'gym_sessions', 'gym_sets'])
   assert.equal(b.exported_at, '2026-10-05T10:00:00.000Z')
   assert.ok(!JSON.stringify(b).includes('token'))
   assert.equal(exportFileName('backup', '2026-10-05'), 'health-export-2026-10-05.json')

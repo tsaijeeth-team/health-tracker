@@ -1,5 +1,5 @@
 -- =====================================================================
--- Health Tracker: LIVE CHECK of the real database (build steps 4, 11 and food units)
+-- Health Tracker: LIVE CHECK of the real database (build steps 4, 11, 12 and food units)
 --
 -- Run in Supabase: SQL Editor -> New query -> paste ALL -> Run.
 -- Do not highlight part of it: the editor would run only the highlighted part.
@@ -35,6 +35,8 @@ declare
   val        text;
   v_token    text;
   ok         boolean;
+  v_ex       uuid;
+  v_lex      uuid;
 begin
   -- Safety: there must be exactly one user (you), and the test dates must be unused.
   select count(*) into n from auth.users;
@@ -88,6 +90,20 @@ begin
     if sqlerrm ilike '%future%' then passed := passed + 1;
     else failures := failures || ('future confirm blocked for the wrong reason: ' || sqlerrm);
     end if;
+  end;
+
+  -- ---- 47. Before 2000-01-01 is confirmed: log a gym session on it, rename allowed ----
+  begin
+    insert into public.exercises (name) values ('TEST live check lock') returning id into v_lex;
+    perform public.save_gym_session(test_day, '18:00', array['back'],
+      jsonb_build_array(jsonb_build_object('exercise_id', v_lex, 'sets',
+        jsonb_build_array(jsonb_build_object('reps', 8, 'weight_kg', 20)))));
+    update public.exercises set name = 'TEST live check locked' where id = v_lex;
+    if (select name from public.exercises where id = v_lex) = 'TEST live check locked' then passed := passed + 1;
+    else failures := failures || 'rename before the day was confirmed did not save'::text;
+    end if;
+  exception when others then
+    failures := failures || ('could not log a gym session or rename before confirming (did you run 006_gym.sql?): ' || sqlerrm);
   end;
 
   -- ---- 5. Past day can be confirmed; time comes from the server clock ----
@@ -285,7 +301,120 @@ begin
     end if;
   end;
 
-  -- ---- 34-36. Share page, as a logged-out visitor ----
+  -- ---- 34-37. Gym log (006, step 12) ----
+  begin
+    insert into public.exercises (name) values ('TEST live check exercise') returning id into v_ex;
+    perform public.save_gym_session(future_day, '18:00', array['chest'],
+      jsonb_build_array(jsonb_build_object('exercise_id', v_ex, 'sets',
+        jsonb_build_array(jsonb_build_object('reps', 10, 'weight_kg', 40)))));
+    passed := passed + 1;
+  exception when others then
+    failures := failures || ('could not save a gym session (did you run 006_gym.sql?): ' || sqlerrm);
+  end;
+  begin
+    insert into public.gym_sessions (day_id, start_time, muscle_groups) values (future_day, '07:00', array['legs']);
+    failures := failures || 'a second gym session on the same day was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%gym_one_session_per_day%' then passed := passed + 1;
+    else failures := failures || ('second gym session blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    insert into public.exercises (name) values ('  test LIVE check   exercise ');
+    failures := failures || 'a duplicate exercise name was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%exercises_unique_name%' then passed := passed + 1;
+    else failures := failures || ('duplicate exercise blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    perform public.save_gym_session(test_day, '18:00', array['chest'],
+      jsonb_build_array(jsonb_build_object('exercise_id', v_ex, 'sets',
+        jsonb_build_array(jsonb_build_object('reps', 10, 'weight_kg', 40)))));
+    failures := failures || 'locked: a gym session was added to a confirmed day'::text;
+  exception when others then
+    if sqlerrm ilike '%locked%' then passed := passed + 1;
+    else failures := failures || ('locked gym session blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+
+  -- ---- 38-41. Renaming and deleting exercises ----
+  begin
+    update public.exercises set name = 'TEST live check renamed' where id = v_ex;
+    if (select count(*) from public.exercise_renames
+        where exercise_id = v_ex and old_name = 'TEST live check exercise' and new_name = 'TEST live check renamed') = 1
+       and (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id where g.exercise_id = v_ex) = 1 then
+      passed := passed + 1;
+    else failures := failures || 'rename did not record history or lost the sets'::text;
+    end if;
+  exception when others then
+    failures := failures || ('could not rename a used exercise: ' || sqlerrm);
+  end;
+  begin
+    insert into public.exercises (name) values ('TEST live check other');
+    update public.exercises set name = '  test live CHECK other ' where id = v_ex;
+    failures := failures || 'rename to an existing name was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%exercises_unique_name%' then passed := passed + 1;
+    else failures := failures || ('duplicate rename blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    delete from public.exercises where id = v_ex;
+    failures := failures || 'deleting a used exercise was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%Used in 1 session%' then passed := passed + 1;
+    else failures := failures || ('used exercise delete blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    insert into public.exercises (name) values ('TEST live check unused') returning id into v_ex;
+    delete from public.exercises where id = v_ex;
+    get diagnostics n = row_count;
+    if n = 1 then passed := passed + 1;
+    else failures := failures || 'an unused exercise could not be deleted'::text;
+    end if;
+  exception when others then
+    failures := failures || ('could not delete an unused exercise: ' || sqlerrm);
+  end;
+
+  -- ---- 48-51. After 2000-01-01 is confirmed: its exercise name is locked ----
+  begin
+    update public.exercises set name = 'TEST live check changed' where id = v_lex;
+    failures := failures || 'locked: renaming an exercise used on a confirmed day was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%Used on a confirmed day — locked%' then passed := passed + 1;
+    else failures := failures || ('locked rename blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    delete from public.exercises where id = v_lex;
+    failures := failures || 'locked: deleting an exercise used on a confirmed day was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%Used on a confirmed day — locked%' then passed := passed + 1;
+    else failures := failures || ('locked delete blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    if (select count(*) from public.exercise_renames where exercise_id = v_lex
+        and old_name = 'TEST live check lock' and new_name = 'TEST live check locked') = 1 then
+      passed := passed + 1;
+    else failures := failures || 'rename history from before locking was not kept'::text;
+    end if;
+  exception when others then
+    failures := failures || ('could not read the rename history: ' || sqlerrm);
+  end;
+  reset role;
+  begin
+    update public.exercises set name = 'TEST live check changed' where id = v_lex;
+    failures := failures || 'dashboard could rename a locked exercise'::text;
+  exception when others then
+    if sqlerrm ilike '%Used on a confirmed day — locked%' then passed := passed + 1;
+    else failures := failures || ('dashboard locked rename blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+
+  -- ---- 42-44. Share page, as a logged-out visitor ----
   reset role;
   perform set_config('request.jwt.claim.sub', '', true);
   perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
@@ -314,7 +443,7 @@ begin
   exception when others then passed := passed + 1;
   end;
 
-  -- ---- 37-38. Switching a link off is immediate and permanent ----
+  -- ---- 45-46. Switching a link off is immediate and permanent ----
   reset role;
   perform set_config('request.jwt.claim.sub', owner_id::text, true);
   perform set_config('request.jwt.claims', json_build_object('sub', owner_id, 'role', 'authenticated')::text, true);
@@ -335,7 +464,7 @@ begin
 
   -- ---- Report (stops the transaction on purpose, so nothing is saved) ----
   if cardinality(failures) = 0 then
-    raise exception 'LIVE CHECK PASSED: % of 38 checks passed. Everything was undone; nothing was saved.', passed;
+    raise exception 'LIVE CHECK PASSED: % of 51 checks passed. Everything was undone; nothing was saved.', passed;
   else
     raise exception 'LIVE CHECK FAILED: % passed, % failed: %. Nothing was saved.',
       passed, cardinality(failures), array_to_string(failures, ' | ');

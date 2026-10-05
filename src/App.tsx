@@ -4,6 +4,7 @@ import { isConfigured, supabase } from './lib/supabase'
 import Login from './Login'
 import DayScreen from './DayScreen'
 import ShareScreen from './ShareScreen'
+import ProgressScreen from './ProgressScreen'
 import SharePage from './SharePage'
 import { tokenFromPath } from './lib/share'
 import OfflineBanner from './OfflineBanner'
@@ -42,7 +43,7 @@ function Screens() {
 function AuthGate({ supabase }: { supabase: SupabaseClient }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<'day' | 'share'>('day')
+  const [view, setView] = useState<'day' | 'share' | 'progress'>('day')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -71,7 +72,10 @@ function AuthGate({ supabase }: { supabase: SupabaseClient }) {
   if (view === 'share') {
     return <ShareScreen supabase={supabase} email={email} onBack={() => setView('day')} />
   }
-  return <DayScreen supabase={supabase} email={email} onOpenShare={() => setView('share')} />
+  if (view === 'progress') {
+    return <ProgressScreen supabase={supabase} onBack={() => setView('day')} />
+  }
+  return <DayScreen supabase={supabase} email={email} onOpenShare={() => setView('share')} onOpenProgress={() => setView('progress')} />
 }
 
 export default App

@@ -9,6 +9,7 @@
 --   psql -d t -f supabase/migrations/003_other_descriptions.sql
 --   psql -d t -f supabase/migrations/004_share_function.sql
 --   psql -d t -f supabase/migrations/005_food_units.sql
+--   psql -d t -f supabase/migrations/006_gym.sql
 --   psql -d t -f supabase/tests/lock_tests.sql
 
 \set ON_ERROR_STOP 1
@@ -330,8 +331,200 @@ select test.check('share token is 64 random hex characters',
 select test.run('intruder sees no share links', 'authenticated', :B,
   $q$select * from public.share_links$q$, null, 0);
 
+-- ---------- Gym log ----------
+-- d6 = an unlocked past day for gym tests (confirmed later in this section).
+\set d6 '''11111111-0000-0000-0000-000000000006'''
+select test.run('owner creates a gym day', 'authenticated', :A,
+  $q$insert into public.days (id, log_date) values ('11111111-0000-0000-0000-000000000006', '2026-09-20')$q$, null, 1);
+select test.run('owner saves an exercise', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('Bench press')$q$, null, 1);
+select test.run('duplicate exercise name rejected (case and spaces ignored)', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('  bench   PRESS ')$q$, 'exercises_unique_name');
+select test.run('exercise name over 60 characters rejected', 'authenticated', :A,
+  $q$insert into public.exercises (name) values (repeat('x', 61))$q$, 'exercises_name_check');
+select test.run('owner saves a bodyweight exercise', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('Pull-up')$q$, null, 1);
+select test.run('intruder may have the same name in their own list', 'authenticated', :B,
+  $q$insert into public.exercises (name) values ('Bench press')$q$, null, 1);
+select test.run('intruder sees only their own exercise', 'authenticated', :B,
+  $q$select * from public.exercises$q$, null, 1);
+select test.run('owner adds an exercise that is never used', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('Typo exercise')$q$, null, 1);
+select test.run('unused exercise can be deleted', 'authenticated', :A,
+  $q$delete from public.exercises where name = 'Typo exercise'$q$, null, 1);
+
+select id as bench from public.exercises where name = 'Bench press' and user_id = '00000000-0000-0000-0000-00000000000a' \gset
+select id as pullup from public.exercises where name = 'Pull-up' \gset
+select id as b_bench from public.exercises where user_id = '00000000-0000-0000-0000-00000000000b' \gset
+
+select test.run('owner saves a whole session', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '18:30', array['chest','arms'],
+    jsonb_build_array(
+      jsonb_build_object('exercise_id', %L, 'note', 'felt strong', 'sets', jsonb_build_array(
+        jsonb_build_object('reps', 10, 'weight_kg', 40), jsonb_build_object('reps', 8, 'weight_kg', 42.5), jsonb_build_object('reps', 6, 'weight_kg', 45))),
+      jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 8, 'weight_kg', 0))))
+  )$q$, :d6, :'bench', :'pullup'), null, 1);
+select test.check('session stored: 2 exercises, 4 sets, note kept',
+  (select count(*) from public.gym_exercises g join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 2
+  and (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 4
+  and exists (select 1 from public.gym_exercises where note = 'felt strong'));
+select test.run('second session on the same day rejected by the database', 'authenticated', :A,
+  format($q$insert into public.gym_sessions (day_id, start_time, muscle_groups) values (%L, '07:00', array['legs'])$q$, :d6), 'gym_one_session_per_day');
+select test.run('saving again edits the same session (still one per day)', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'],
+    jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(
+      jsonb_build_object('reps', 5, 'weight_kg', 50), jsonb_build_object('reps', 5, 'weight_kg', 50), jsonb_build_object('reps', 5, 'weight_kg', 50)))))$q$, :d6, :'bench'), null, 1);
+select test.check('one session, 1 exercise, 3 sets after editing',
+  (select count(*) from public.gym_sessions where day_id = :d6) = 1
+  and (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 3
+  and (select start_time from public.gym_sessions where day_id = :d6) = '19:00');
+select test.run('save with no exercises refused', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], '[]'::jsonb)$q$, :d6), 'at least one exercise');
+select test.run('save with an exercise but no sets refused', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', '[]'::jsonb)))$q$, :d6, :'bench'), 'at least one set');
+select test.check('a refused save changes nothing (all or nothing)',
+  (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 3);
+select test.run('reps 0 rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 0, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'gym_sets_reps_check');
+select test.run('reps 101 rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 101, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'gym_sets_reps_check');
+select test.run('weight 500.01 kg rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 500.01)))))$q$, :d6, :'bench'), 'gym_sets_weight_kg_check');
+select test.run('weight with 3 decimals rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40.125)))))$q$, :d6, :'bench'), 'gym_sets_weight_kg_check');
+select test.run('unknown muscle group rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['neck'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'muscle_groups');
+select test.run('no muscle group rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array[]::text[], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'muscle_groups');
+select test.run('the same exercise twice in one session rejected', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(
+    jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40))),
+    jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'bench', :'bench'), 'gym_exercise_once_per_session');
+select test.run('owner cannot use someone else''s exercise', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'b_bench'), 'row-level security');
+select test.run('intruder cannot save into owner''s day', 'authenticated', :B,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'b_bench'), 'row-level security');
+select test.run('intruder sees no gym sessions', 'authenticated', :B, $q$select * from public.gym_sessions$q$, null, 0);
+select test.run('intruder sees no gym sets', 'authenticated', :B, $q$select * from public.gym_sets$q$, null, 0);
+select test.run('visitor cannot read exercises', 'anon', null, $q$select * from public.exercises$q$, 'permission denied');
+select test.run('visitor cannot read gym sets', 'anon', null, $q$select * from public.gym_sets$q$, 'permission denied');
+select test.run('visitor cannot call save_gym_session', 'anon', null,
+  format($q$select public.save_gym_session(%L, '19:00', array['chest'], '[]'::jsonb)$q$, :d6), 'permission denied');
+
+-- ---------- Exercise names BEFORE the gym day is confirmed: rename allowed ----------
+-- Bench press is used on d6, which is not confirmed yet.
+select test.run('rename allowed while used only on unconfirmed days', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Barbell bench press' where id = %L$q$, :'bench'), null, 1);
+select test.check('rename kept the session: same 3 sets, same reps and kg',
+  (select string_agg(x.reps || 'x' || x.weight_kg, ',' order by x.set_number) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id where g.exercise_id = :'bench')
+  = (select string_agg(x.reps || 'x' || x.weight_kg, ',' order by x.set_number) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.exercises e on e.id = g.exercise_id where e.name = 'Barbell bench press'),
+  (select string_agg(x.reps || 'x' || x.weight_kg, ',') from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id where g.exercise_id = :'bench'));
+select test.check('rename history: Bench press -> Barbell bench press, server time',
+  (select count(*) = 1 and bool_and(old_name = 'Bench press' and new_name = 'Barbell bench press' and renamed_at > now() - interval '1 minute')
+   from public.exercise_renames where exercise_id = :'bench'));
+select test.run('rename to an existing name is refused (case and spaces ignored)', 'authenticated', :A,
+  format($q$update public.exercises set name = '  PULL-UP ' where id = %L$q$, :'bench'), 'exercises_unique_name');
+select test.check('refused rename left no history row',
+  (select count(*) from public.exercise_renames where exercise_id = :'bench') = 1);
+select test.run('rename that only changes capitals is allowed', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Barbell Bench Press' where id = %L$q$, :'bench'), null, 1);
+select test.run('saving the same name again is allowed', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Barbell Bench Press' where id = %L$q$, :'bench'), null, 1);
+select test.check('history: 2 renames, the no-change save not recorded',
+  (select count(*) from public.exercise_renames where exercise_id = :'bench') = 2);
+select test.run('rename to blank is refused', 'authenticated', :A,
+  format($q$update public.exercises set name = '   ' where id = %L$q$, :'bench'), 'exercises_name_check');
+select test.run('rename over 60 characters is refused', 'authenticated', :A,
+  format($q$update public.exercises set name = repeat('x', 61) where id = %L$q$, :'bench'), 'exercises_name_check');
+select test.run('only the name can be changed (not the owner)', 'authenticated', :A,
+  format($q$update public.exercises set user_id = '00000000-0000-0000-0000-00000000000b' where id = %L$q$, :'bench'), 'permission denied');
+select test.run('only the name can be changed (not the id)', 'authenticated', :A,
+  format($q$update public.exercises set id = gen_random_uuid() where id = %L$q$, :'bench'), 'permission denied');
+select test.run('used exercise (unconfirmed day) cannot be deleted', 'authenticated', :A,
+  format($q$delete from public.exercises where id = %L$q$, :'bench'), 'Used in 1 session — rename instead');
+select test.run('dashboard cannot delete a used exercise either', 'postgres', null,
+  format($q$delete from public.exercises where id = %L$q$, :'bench'), 'Used in 1 session');
+select test.run('owner cannot write fake rename history', 'authenticated', :A,
+  format($q$insert into public.exercise_renames (exercise_id, user_id, old_name, new_name) values (%L, '00000000-0000-0000-0000-00000000000a', 'x', 'y')$q$, :'bench'), 'permission denied');
+select test.run('owner cannot edit rename history', 'authenticated', :A,
+  $q$update public.exercise_renames set old_name = 'x'$q$, 'permission denied');
+select test.run('owner cannot delete rename history', 'authenticated', :A,
+  $q$delete from public.exercise_renames$q$, 'permission denied');
+select test.run('dashboard cannot edit rename history', 'postgres', null,
+  $q$update public.exercise_renames set old_name = 'x'$q$, 'permanent');
+select test.run('dashboard cannot delete rename history', 'postgres', null,
+  $q$delete from public.exercise_renames$q$, 'permanent');
+select test.run('intruder cannot rename the owner''s exercise', 'authenticated', :B,
+  format($q$update public.exercises set name = 'Hacked' where id = %L$q$, :'bench'), null, 0);
+select test.run('intruder cannot delete the owner''s exercise', 'authenticated', :B,
+  format($q$delete from public.exercises where id = %L$q$, :'pullup'), null, 0);
+select test.run('intruder sees no rename history', 'authenticated', :B, $q$select * from public.exercise_renames$q$, null, 0);
+select test.run('intruder can rename their own exercise to the owner''s name (names are per person)', 'authenticated', :B,
+  format($q$update public.exercises set name = 'Barbell Bench Press' where id = %L$q$, :'b_bench'), null, 1);
+select test.run('visitor cannot read rename history', 'anon', null, $q$select * from public.exercise_renames$q$, 'permission denied');
+select test.run('visitor cannot rename exercises', 'anon', null, $q$update public.exercises set name = 'x'$q$, 'permission denied');
+select test.run('visitor cannot delete exercises', 'anon', null, $q$delete from public.exercises$q$, 'permission denied');
+select test.run('owner adds and renames an unused exercise', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('Curl'); update public.exercises set name = 'Biceps curl' where name = 'Curl'$q$, null, 1);
+select test.run('unused exercise with rename history can still be deleted', 'authenticated', :A,
+  $q$delete from public.exercises where name = 'Biceps curl'$q$, null, 1);
+select test.check('its history went with it',
+  not exists (select 1 from public.exercise_renames where new_name = 'Biceps curl'));
+
+-- Lock: confirm the gym day, then every change must be refused.
+select test.run('owner confirms the gym day', 'authenticated', :A,
+  $q$update public.days set confirmed_at = now() where id = '11111111-0000-0000-0000-000000000006'$q$, null, 1);
+select test.run('locked: cannot save the session again', 'authenticated', :A,
+  format($q$select public.save_gym_session(%L, '20:00', array['legs'], jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 5, 'weight_kg', 40)))))$q$, :d6, :'bench'), 'locked');
+select test.run('locked: cannot change a set', 'authenticated', :A,
+  $q$update public.gym_sets set weight_kg = 100$q$, 'locked');
+select test.run('locked: cannot delete a set', 'authenticated', :A,
+  $q$delete from public.gym_sets$q$, 'locked');
+select test.run('locked: cannot add a set', 'authenticated', :A,
+  $q$insert into public.gym_sets (entry_id, set_number, reps, weight_kg) select id, 9, 5, 40 from public.gym_exercises limit 1$q$, 'locked');
+select test.run('locked: cannot change an exercise note', 'authenticated', :A,
+  $q$update public.gym_exercises set note = 'changed'$q$, 'locked');
+select test.run('locked: cannot delete the session', 'authenticated', :A,
+  format($q$delete from public.gym_sessions where day_id = %L$q$, :d6), 'locked');
+select test.run('dashboard: cannot change a locked set', 'postgres', null,
+  $q$update public.gym_sets set reps = 1$q$, 'locked');
+
+-- ---------- Exercise names AFTER the gym day is confirmed: locked ----------
+select test.run('locked name: rename refused once used on a confirmed day', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Flat bench' where id = %L$q$, :'bench'), 'Used on a confirmed day — locked');
+select test.run('locked name: changing only capitals is refused too', 'authenticated', :A,
+  format($q$update public.exercises set name = 'barbell bench press' where id = %L$q$, :'bench'), 'Used on a confirmed day — locked');
+select test.run('locked name: delete refused with the locked message', 'authenticated', :A,
+  format($q$delete from public.exercises where id = %L$q$, :'bench'), 'Used on a confirmed day — locked');
+select test.run('locked name: dashboard cannot rename it', 'postgres', null,
+  format($q$update public.exercises set name = 'Flat bench' where id = %L$q$, :'bench'), 'Used on a confirmed day — locked');
+select test.run('locked name: dashboard cannot delete it', 'postgres', null,
+  format($q$delete from public.exercises where id = %L$q$, :'bench'), 'Used on a confirmed day — locked');
+select test.run('locked name: saving the identical name is not a change (allowed)', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Barbell Bench Press' where id = %L$q$, :'bench'), null, 1);
+select test.check('locked name unchanged and its earlier history kept (2 renames)',
+  (select name = 'Barbell Bench Press' from public.exercises where id = :'bench')
+  and (select count(*) from public.exercise_renames where exercise_id = :'bench') = 2);
+select test.check('locked gym day untouched: still 3 sets, still confirmed',
+  (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 3
+  and (select confirmed_at is not null from public.days where id = :d6));
+-- Another exercise used only on an unconfirmed day stays renamable.
+select test.run('owner creates a second gym day (not confirmed)', 'authenticated', :A,
+  $q$insert into public.days (id, log_date) values ('11111111-0000-0000-0000-000000000007', '2026-09-21')$q$, null, 1);
+select test.run('owner logs pull-ups on it', 'authenticated', :A,
+  format($q$select public.save_gym_session('11111111-0000-0000-0000-000000000007', '07:00', array['back'],
+    jsonb_build_array(jsonb_build_object('exercise_id', %L, 'sets', jsonb_build_array(jsonb_build_object('reps', 8, 'weight_kg', 0)))))$q$, :'pullup'), null, 1);
+select test.run('exercise used only on an unconfirmed day: rename allowed', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Pull-up (wide grip)' where id = %L$q$, :'pullup'), null, 1);
+select test.run('exercise used only on an unconfirmed day: delete refused (used)', 'authenticated', :A,
+  format($q$delete from public.exercises where id = %L$q$, :'pullup'), 'Used in 1 session — rename instead');
+select test.run('confirming that day locks its exercise names', 'authenticated', :A,
+  $q$update public.days set confirmed_at = now() where id = '11111111-0000-0000-0000-000000000007'$q$, null, 1);
+select test.run('…and the rename is now refused', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Pull-up' where id = %L$q$, :'pullup'), 'Used on a confirmed day — locked');
+
 -- ---------- Share page: the only door for logged-out viewers ----------
--- State here: owner A has two confirmed days (d1 = 2026-10-01, d4 = today) and one unconfirmed (tomorrow).
+-- State here: owner A has four confirmed days (d1 = 2026-10-01, d4 = today, two gym days in Sept) and one unconfirmed (tomorrow).
 -- d1 has: food Dal 210 kcal (protein 14), water 500 ml, maad water 250 ml 40 kcal, cardio brisk walk 30 min,
 -- a note, and private fields (bedtime 23:30, wake 07:00, junk meals 1).
 select token as share_token from public.share_links where label = 'Family' \gset
@@ -339,9 +532,11 @@ select token as share_token from public.share_links where label = 'Family' \gset
 
 select test.run('visitor can call the share function', 'anon', null,
   format('select public.get_shared_progress(%L)', :'share_token'), null, 1);
-select test.check('share shows only confirmed days (2), newest first',
-  (select jsonb_array_length(public.get_shared_progress(:T)->'days')) = 2
-  and (select public.get_shared_progress(:T)->'days'->1->>'date') = '2026-10-01',
+select test.check('share shows only confirmed days (4), newest first',
+  (select jsonb_array_length(public.get_shared_progress(:T)->'days')) = 4
+  and (select public.get_shared_progress(:T)->'days'->1->>'date') = '2026-10-01'
+  and (select public.get_shared_progress(:T)->'days'->2->>'date') = '2026-09-21'
+  and (select public.get_shared_progress(:T)->'days'->3->>'date') = '2026-09-20',
   (select public.get_shared_progress(:T)::text));
 select test.check('unconfirmed (tomorrow) not shared',
   not exists (select 1 from jsonb_array_elements(public.get_shared_progress(:T)->'days') e
@@ -359,6 +554,9 @@ select test.check('shared totals for 1 Oct: 210 kcal food, 750 ml fluids, 40 kca
       and (e->'fluids'->>'kcal')::numeric = 40 and (e->'cardio'->0->>'minutes')::int = 30
       and e->>'bedtime' = '23:30' and (e->>'sleep_minutes')::int = 450 and (e->>'junk_meals')::int = 1
    from jsonb_array_elements(public.get_shared_progress(:T)->'days') e where e->>'date' = '2026-10-01'),
+  (select public.get_shared_progress(:T)::text));
+select test.check('gym data is not shared (not on the allowed list)',
+  (select public.get_shared_progress(:T)::text) !~* '(gym|bench|exercise|rename|reps|weight_kg": 4|felt strong)',
   (select public.get_shared_progress(:T)::text));
 select test.check('wrong token returns nothing',
   public.get_shared_progress(repeat('a', 64)) is null);
@@ -393,6 +591,16 @@ select test.run('revoked link cannot be re-activated', 'authenticated', :A,
 select test.run('dashboard cannot re-activate it either', 'postgres', null,
   $q$update public.share_links set revoked_at = null where label = 'Family'$q$, 'revoked');
 select test.check('still revoked', public.get_shared_progress(:T) is null);
+
+-- ---------- Backup export: every table can be read in pages ordered by created_at, id ----------
+select test.check('every owner table has created_at (the backup export sorts by it)',
+  not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'r' and c.relname <> 'share_links'
+      and not exists (select 1 from information_schema.columns col
+        where col.table_schema = 'public' and col.table_name = c.relname and col.column_name = 'created_at')),
+  (select string_agg(c.relname, ',') from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'r'
+      and not exists (select 1 from information_schema.columns col where col.table_schema = 'public' and col.table_name = c.relname and col.column_name = 'created_at')));
 
 -- ---------- Report ----------
 \o
