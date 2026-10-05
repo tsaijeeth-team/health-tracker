@@ -217,6 +217,12 @@ Graphs are on a separate "Progress" screen.
 **Exercises**
 - Picked from a saved exercise list the owner can add to. No free-text duplicates
   (e.g. "Bench press" and "bench press " count as the same exercise).
+- **Rename** any time, even if used on confirmed days. The no-duplicates rule still applies (capitals and spaces
+  ignored). Sets, reps and kg never change: sessions point to the exercise, not its name.
+- **Rename history** (old name → new name, date/time) is kept permanently and shown under the exercise
+  ("Your exercises" on the Progress screen), so label changes on confirmed days stay traceable.
+- **Delete** only if never used in any session; otherwise: "Used in N sessions — rename instead".
+- Graphs follow the exercise, so history stays connected after a rename.
 - Each exercise in a session: sets, each with reps and weight (kg), plus an optional note per exercise.
 - A new set copies the previous set's reps and kg.
 - Limits: weight 0–500 kg (up to 2 decimals), reps 1–100.

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import LineChart, { type ChartPoint } from './components/LineChart'
+import ExercisesCard, { type ExerciseItem } from './ExercisesCard'
 import { E1RM_MAX_REPS, formatSet, progressPoints, type GymSet } from './lib/gym'
 import { fetchAllRows, type Row } from './lib/export'
 import { formatDateLabel } from './lib/dates'
@@ -23,21 +24,48 @@ function ProgressScreen({ supabase, onBack }: { supabase: SupabaseClient; onBack
   const [error, setError] = useState('')
   const [chosen, setChosen] = useState('')
 
-  // Loading data from the server is what effects are for; state changes only after the reply.
-  useEffect(() => {
-    let cancelled = false
-    fetchAllRows((from, to) =>
-      supabase
-        .from('gym_exercises')
-        .select('exercise_id, exercises(name), gym_sessions(days(log_date)), gym_sets(reps, weight_kg)')
-        .order('created_at')
-        .order('id')
-        .range(from, to) as unknown as PromiseLike<{ data: Row[] | null; error: { message: string; code?: string } | null }>,
-    )
-      .then((rows) => { if (!cancelled) setEntries(rows as unknown as Entry[]) })
-      .catch((e: { message?: string; code?: string }) => { if (!cancelled) setError(friendlyError(e.message ?? String(e), e.code, true)) })
-    return () => { cancelled = true }
+  const [list, setList] = useState<ExerciseItem[] | null>(null)
+
+  const loadEntries = useCallback(async () => {
+    try {
+      const rows = await fetchAllRows((from, to) =>
+        supabase
+          .from('gym_exercises')
+          .select('exercise_id, exercises(name), gym_sessions(days(log_date)), gym_sets(reps, weight_kg)')
+          .order('created_at')
+          .order('id')
+          .range(from, to) as unknown as PromiseLike<{ data: Row[] | null; error: { message: string; code?: string } | null }>,
+      )
+      setEntries(rows as unknown as Entry[])
+    } catch (e) {
+      const err = e as { message?: string; code?: string }
+      setError(friendlyError(err.message ?? String(e), err.code, true))
+    }
   }, [supabase])
+
+  // The exercise list with rename history. Graphs follow the exercise (its id), so a rename
+  // changes only the label; this list is the source of current names.
+  const loadList = useCallback(async () => {
+    const { data, error: err } = await supabase
+      .from('exercises')
+      .select('id, name, exercise_renames(old_name, new_name, renamed_at)')
+      .order('name')
+    if (err) setError(friendlyError(err.message, err.code, true))
+    else setList(data as ExerciseItem[])
+  }, [supabase])
+
+  // Loading data from the server is what effects are for; state changes only after the reply.
+  useEffect(() => { loadEntries(); loadList() }, [loadEntries, loadList])
+
+  // After a rename or delete (or a refused delete): fresh names, history and usage counts.
+  const refresh = useCallback(async () => { await Promise.all([loadEntries(), loadList()]) }, [loadEntries, loadList])
+
+  const names = useMemo(() => new Map((list ?? []).map((e) => [e.id, e.name])), [list])
+  const sessionCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const e of entries ?? []) counts.set(e.exercise_id, (counts.get(e.exercise_id) ?? 0) + 1)
+    return counts
+  }, [entries])
 
   // Exercises with at least one logged session, most recently done first.
   const exercises = useMemo(() => {
@@ -46,12 +74,14 @@ function ProgressScreen({ supabase, onBack }: { supabase: SupabaseClient; onBack
       const date = e.gym_sessions?.days?.log_date
       if (!date || e.gym_sets.length === 0) continue
       const prev = latest.get(e.exercise_id)
-      if (!prev || date > prev.last) latest.set(e.exercise_id, { id: e.exercise_id, name: e.exercises?.name ?? 'Exercise', last: date })
+      if (!prev || date > prev.last) latest.set(e.exercise_id, { id: e.exercise_id, name: names.get(e.exercise_id) ?? e.exercises?.name ?? 'Exercise', last: date })
     }
     return [...latest.values()].sort((a, b) => b.last.localeCompare(a.last) || a.name.localeCompare(b.name))
-  }, [entries])
+  }, [entries, names])
 
   const selected = exercises.find((e) => e.id === chosen) ?? exercises[0]
+  const selectedRenames = (list ?? []).find((e) => e.id === selected?.id)?.exercise_renames ?? []
+  const firstName = [...selectedRenames].sort((a, b) => a.renamed_at.localeCompare(b.renamed_at))[0]?.old_name
 
   const points = useMemo(() => {
     if (!selected) return []
@@ -96,6 +126,7 @@ function ProgressScreen({ supabase, onBack }: { supabase: SupabaseClient; onBack
               </label>
               <p className="muted small">
                 {points.length} session{points.length === 1 ? '' : 's'}. Tap a graph to see a value.
+                {firstName && ` Includes sessions logged as “${firstName}” (renamed; see Your exercises).`}
               </p>
             </section>
 
@@ -142,6 +173,9 @@ function ProgressScreen({ supabase, onBack }: { supabase: SupabaseClient; onBack
               </div>
             </section>
           </>
+        )}
+        {list !== null && list.length > 0 && entries !== null && (
+          <ExercisesCard supabase={supabase} exercises={list} sessionCounts={sessionCounts} onChanged={refresh} />
         )}
       </main>
     </div>

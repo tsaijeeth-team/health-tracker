@@ -2,6 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { cleanName, e1rm, findExercise, formatSet, nameKey, nextSet, progressPoints, sessionStats, validateSession, type SessionForm } from '../src/lib/gym.ts'
+import { exerciseNameError, usedMessage } from '../src/lib/gym.ts'
 
 test('e1RM: Epley, only 1-10 reps, 1 rep = weight, 0 kg none', () => {
   assert.equal(e1rm({ reps: 10, weight_kg: 60 }), 80) // 60 × (1 + 10/30) = 80
@@ -82,4 +83,17 @@ test('progress points: oldest first, gaps where no e1RM', () => {
   assert.equal(pts[0].e1rm, 80)
   assert.equal(pts[1].e1rm, null)
   assert.equal(pts[1].topKg, 30)
+})
+
+test('exercise names: rename checks', () => {
+  const list = [{ id: 'a', name: 'Bench press' }, { id: 'b', name: 'Pull-up' }]
+  assert.equal(exerciseNameError('Barbell bench press', list, 'a'), null)
+  assert.equal(exerciseNameError('  PULL-UP ', list, 'a'), '"Pull-up" is already in your list.')
+  assert.equal(exerciseNameError('bench  PRESS', list, 'a'), null) // only capitals/spaces of its own name
+  assert.equal(exerciseNameError('bench press', list), '"Bench press" is already in your list.') // new exercise
+  assert.equal(exerciseNameError('   ', list, 'a'), 'Enter a name.')
+  assert.equal(exerciseNameError('x'.repeat(61), list, 'a'), 'An exercise name can be at most 60 characters.')
+  assert.equal(exerciseNameError(' ' + 'x'.repeat(60) + ' ', list, 'a'), null) // trimmed first
+  assert.equal(usedMessage(1), 'Used in 1 session — rename instead.')
+  assert.equal(usedMessage(3), 'Used in 3 sessions — rename instead.')
 })

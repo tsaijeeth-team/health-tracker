@@ -323,7 +323,47 @@ begin
     end if;
   end;
 
-  -- ---- 38-40. Share page, as a logged-out visitor ----
+  -- ---- 38-41. Renaming and deleting exercises ----
+  begin
+    update public.exercises set name = 'TEST live check renamed' where id = v_ex;
+    if (select count(*) from public.exercise_renames
+        where exercise_id = v_ex and old_name = 'TEST live check exercise' and new_name = 'TEST live check renamed') = 1
+       and (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id where g.exercise_id = v_ex) = 1 then
+      passed := passed + 1;
+    else failures := failures || 'rename did not record history or lost the sets'::text;
+    end if;
+  exception when others then
+    failures := failures || ('could not rename a used exercise: ' || sqlerrm);
+  end;
+  begin
+    insert into public.exercises (name) values ('TEST live check other');
+    update public.exercises set name = '  test live CHECK other ' where id = v_ex;
+    failures := failures || 'rename to an existing name was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%exercises_unique_name%' then passed := passed + 1;
+    else failures := failures || ('duplicate rename blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    delete from public.exercises where id = v_ex;
+    failures := failures || 'deleting a used exercise was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%Used in 1 session%' then passed := passed + 1;
+    else failures := failures || ('used exercise delete blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    insert into public.exercises (name) values ('TEST live check unused') returning id into v_ex;
+    delete from public.exercises where id = v_ex;
+    get diagnostics n = row_count;
+    if n = 1 then passed := passed + 1;
+    else failures := failures || 'an unused exercise could not be deleted'::text;
+    end if;
+  exception when others then
+    failures := failures || ('could not delete an unused exercise: ' || sqlerrm);
+  end;
+
+  -- ---- 42-44. Share page, as a logged-out visitor ----
   reset role;
   perform set_config('request.jwt.claim.sub', '', true);
   perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
@@ -352,7 +392,7 @@ begin
   exception when others then passed := passed + 1;
   end;
 
-  -- ---- 41-42. Switching a link off is immediate and permanent ----
+  -- ---- 45-46. Switching a link off is immediate and permanent ----
   reset role;
   perform set_config('request.jwt.claim.sub', owner_id::text, true);
   perform set_config('request.jwt.claims', json_build_object('sub', owner_id, 'role', 'authenticated')::text, true);
@@ -373,7 +413,7 @@ begin
 
   -- ---- Report (stops the transaction on purpose, so nothing is saved) ----
   if cardinality(failures) = 0 then
-    raise exception 'LIVE CHECK PASSED: % of 42 checks passed. Everything was undone; nothing was saved.', passed;
+    raise exception 'LIVE CHECK PASSED: % of 46 checks passed. Everything was undone; nothing was saved.', passed;
   else
     raise exception 'LIVE CHECK FAILED: % passed, % failed: %. Nothing was saved.',
       passed, cardinality(failures), array_to_string(failures, ' | ');

@@ -348,10 +348,10 @@ select test.run('intruder may have the same name in their own list', 'authentica
   $q$insert into public.exercises (name) values ('Bench press')$q$, null, 1);
 select test.run('intruder sees only their own exercise', 'authenticated', :B,
   $q$select * from public.exercises$q$, null, 1);
-select test.run('saved exercises cannot be renamed (locked days keep their names)', 'authenticated', :A,
-  $q$update public.exercises set name = 'Changed'$q$, 'permission denied');
-select test.run('saved exercises cannot be deleted', 'authenticated', :A,
-  $q$delete from public.exercises$q$, 'permission denied');
+select test.run('owner adds an exercise that is never used', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('Typo exercise')$q$, null, 1);
+select test.run('unused exercise can be deleted', 'authenticated', :A,
+  $q$delete from public.exercises where name = 'Typo exercise'$q$, null, 1);
 
 select id as bench from public.exercises where name = 'Bench press' and user_id = '00000000-0000-0000-0000-00000000000a' \gset
 select id as pullup from public.exercises where name = 'Pull-up' \gset
@@ -429,6 +429,72 @@ select test.run('locked: cannot delete the session', 'authenticated', :A,
 select test.run('dashboard: cannot change a locked set', 'postgres', null,
   $q$update public.gym_sets set reps = 1$q$, 'locked');
 
+-- ---------- Renaming and deleting exercises (after the gym day is locked) ----------
+select test.run('rename is allowed even when used on a confirmed day', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Barbell bench press' where id = %L$q$, :'bench'), null, 1);
+select test.check('rename kept the session: same exercise, same 3 sets, same reps and kg',
+  (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id where g.exercise_id = :'bench') = 3
+  and (select string_agg(x.reps || 'x' || x.weight_kg, ',' order by x.set_number) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id where g.exercise_id = :'bench')
+      = (select string_agg(x.reps || 'x' || x.weight_kg, ',' order by x.set_number) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.exercises e on e.id = g.exercise_id where e.name = 'Barbell bench press'),
+  (select string_agg(x.reps || 'x' || x.weight_kg, ',') from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id where g.exercise_id = :'bench'));
+select test.check('rename history: Bench press -> Barbell bench press, server time',
+  (select count(*) = 1 and bool_and(old_name = 'Bench press' and new_name = 'Barbell bench press' and renamed_at > now() - interval '1 minute')
+   from public.exercise_renames where exercise_id = :'bench'));
+select test.run('rename to an existing name is refused (case and spaces ignored)', 'authenticated', :A,
+  format($q$update public.exercises set name = '  PULL-UP ' where id = %L$q$, :'bench'), 'exercises_unique_name');
+select test.check('refused rename left no history row',
+  (select count(*) from public.exercise_renames where exercise_id = :'bench') = 1);
+select test.run('rename that only changes capitals is allowed', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Barbell Bench Press' where id = %L$q$, :'bench'), null, 1);
+select test.run('saving the same name again is allowed', 'authenticated', :A,
+  format($q$update public.exercises set name = 'Barbell Bench Press' where id = %L$q$, :'bench'), null, 1);
+select test.check('history: 2 renames, the no-change save not recorded',
+  (select count(*) from public.exercise_renames where exercise_id = :'bench') = 2);
+select test.run('rename to blank is refused', 'authenticated', :A,
+  format($q$update public.exercises set name = '   ' where id = %L$q$, :'bench'), 'exercises_name_check');
+select test.run('rename over 60 characters is refused', 'authenticated', :A,
+  format($q$update public.exercises set name = repeat('x', 61) where id = %L$q$, :'bench'), 'exercises_name_check');
+select test.run('only the name can be changed (not the owner)', 'authenticated', :A,
+  format($q$update public.exercises set user_id = '00000000-0000-0000-0000-00000000000b' where id = %L$q$, :'bench'), 'permission denied');
+select test.run('only the name can be changed (not the id)', 'authenticated', :A,
+  format($q$update public.exercises set id = gen_random_uuid() where id = %L$q$, :'bench'), 'permission denied');
+select test.run('used exercise cannot be deleted', 'authenticated', :A,
+  format($q$delete from public.exercises where id = %L$q$, :'bench'), 'Used in 1 session — rename instead');
+select test.run('dashboard cannot delete a used exercise either', 'postgres', null,
+  format($q$delete from public.exercises where id = %L$q$, :'bench'), 'Used in 1 session');
+select test.check('locked gym day untouched by renames: still 3 sets, still confirmed',
+  (select count(*) from public.gym_sets x join public.gym_exercises g on g.id = x.entry_id join public.gym_sessions s on s.id = g.session_id where s.day_id = :d6) = 3
+  and (select confirmed_at is not null from public.days where id = :d6));
+select test.run('owner cannot write fake rename history', 'authenticated', :A,
+  format($q$insert into public.exercise_renames (exercise_id, user_id, old_name, new_name) values (%L, '00000000-0000-0000-0000-00000000000a', 'x', 'y')$q$, :'bench'), 'permission denied');
+select test.run('owner cannot edit rename history', 'authenticated', :A,
+  $q$update public.exercise_renames set old_name = 'x'$q$, 'permission denied');
+select test.run('owner cannot delete rename history', 'authenticated', :A,
+  $q$delete from public.exercise_renames$q$, 'permission denied');
+select test.run('dashboard cannot edit rename history', 'postgres', null,
+  $q$update public.exercise_renames set old_name = 'x'$q$, 'permanent');
+select test.run('dashboard cannot delete rename history', 'postgres', null,
+  $q$delete from public.exercise_renames$q$, 'permanent');
+select test.run('intruder cannot rename the owner''s exercise', 'authenticated', :B,
+  format($q$update public.exercises set name = 'Hacked' where id = %L$q$, :'bench'), null, 0);
+select test.run('intruder cannot delete the owner''s exercise', 'authenticated', :B,
+  format($q$delete from public.exercises where id = %L$q$, :'pullup'), null, 0);
+select test.run('intruder sees no rename history', 'authenticated', :B, $q$select * from public.exercise_renames$q$, null, 0);
+select test.run('intruder can rename their own exercise to the owner''s name (names are per person)', 'authenticated', :B,
+  format($q$update public.exercises set name = 'Barbell Bench Press' where id = %L$q$, :'b_bench'), null, 1);
+select test.run('visitor cannot read rename history', 'anon', null, $q$select * from public.exercise_renames$q$, 'permission denied');
+select test.run('visitor cannot rename exercises', 'anon', null, $q$update public.exercises set name = 'x'$q$, 'permission denied');
+select test.run('visitor cannot delete exercises', 'anon', null, $q$delete from public.exercises$q$, 'permission denied');
+select test.run('owner adds and renames an unused exercise', 'authenticated', :A,
+  $q$insert into public.exercises (name) values ('Curl'); update public.exercises set name = 'Biceps curl' where name = 'Curl'$q$, null, 1);
+select test.run('unused exercise with rename history can still be deleted', 'authenticated', :A,
+  $q$delete from public.exercises where name = 'Biceps curl'$q$, null, 1);
+select test.check('its history went with it',
+  not exists (select 1 from public.exercise_renames where new_name = 'Biceps curl'));
+select test.check('the used exercise and its history are still there',
+  exists (select 1 from public.exercises where id = :'bench')
+  and (select count(*) from public.exercise_renames where exercise_id = :'bench') = 2);
+
 -- ---------- Share page: the only door for logged-out viewers ----------
 -- State here: owner A has two confirmed days (d1 = 2026-10-01, d4 = today) and one unconfirmed (tomorrow).
 -- d1 has: food Dal 210 kcal (protein 14), water 500 ml, maad water 250 ml 40 kcal, cardio brisk walk 30 min,
@@ -461,7 +527,7 @@ select test.check('shared totals for 1 Oct: 210 kcal food, 750 ml fluids, 40 kca
    from jsonb_array_elements(public.get_shared_progress(:T)->'days') e where e->>'date' = '2026-10-01'),
   (select public.get_shared_progress(:T)::text));
 select test.check('gym data is not shared (not on the allowed list)',
-  (select public.get_shared_progress(:T)::text) !~* '(gym|bench|exercise|reps|weight_kg": 4|felt strong)',
+  (select public.get_shared_progress(:T)::text) !~* '(gym|bench|exercise|rename|reps|weight_kg": 4|felt strong)',
   (select public.get_shared_progress(:T)::text));
 select test.check('wrong token returns nothing',
   public.get_shared_progress(repeat('a', 64)) is null);
@@ -496,6 +562,16 @@ select test.run('revoked link cannot be re-activated', 'authenticated', :A,
 select test.run('dashboard cannot re-activate it either', 'postgres', null,
   $q$update public.share_links set revoked_at = null where label = 'Family'$q$, 'revoked');
 select test.check('still revoked', public.get_shared_progress(:T) is null);
+
+-- ---------- Backup export: every table can be read in pages ordered by created_at, id ----------
+select test.check('every owner table has created_at (the backup export sorts by it)',
+  not exists (select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'r' and c.relname <> 'share_links'
+      and not exists (select 1 from information_schema.columns col
+        where col.table_schema = 'public' and col.table_name = c.relname and col.column_name = 'created_at')),
+  (select string_agg(c.relname, ',') from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'r'
+      and not exists (select 1 from information_schema.columns col where col.table_schema = 'public' and col.table_name = c.relname and col.column_name = 'created_at')));
 
 -- ---------- Report ----------
 \o

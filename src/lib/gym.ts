@@ -74,6 +74,21 @@ export function findExercise<T extends { name: string }>(list: T[], typed: strin
   return list.find((e) => nameKey(e.name) === key)
 }
 
+// Checks a new or changed exercise name against the owner's list. null = fine.
+// selfId: the exercise being renamed (its own name never counts as a duplicate).
+export function exerciseNameError(typed: string, list: { id: string; name: string }[], selfId?: string): string | null {
+  const name = cleanName(typed)
+  if (!name) return 'Enter a name.'
+  if (name.length > MAX_NAME) return `An exercise name can be at most ${MAX_NAME} characters.`
+  const clash = list.find((e) => e.id !== selfId && nameKey(e.name) === nameKey(name))
+  if (clash) return `"${clash.name}" is already in your list.`
+  return null
+}
+
+// "Used in 3 sessions — rename instead." The database gives the same answer.
+export const usedMessage = (sessions: number) =>
+  `Used in ${sessions} session${sessions === 1 ? '' : 's'} — rename instead.`
+
 // ---------- Form checks ----------
 
 export type SetForm = { reps: string; weight_kg: string }
