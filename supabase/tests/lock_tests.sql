@@ -8,6 +8,7 @@
 --   psql -d t -f supabase/migrations/002_fibre_sum.sql
 --   psql -d t -f supabase/migrations/003_other_descriptions.sql
 --   psql -d t -f supabase/migrations/004_share_function.sql
+--   psql -d t -f supabase/migrations/005_food_units.sql
 --   psql -d t -f supabase/tests/lock_tests.sql
 
 \set ON_ERROR_STOP 1
@@ -172,6 +173,64 @@ select test.run('visitor cannot read share links', 'anon', null, $q$select * fro
 select test.run('visitor cannot write days', 'anon', null, $q$insert into public.days (log_date) values ('2026-09-01')$q$, 'permission denied');
 select test.run('website cannot call private helpers', 'authenticated', :A, $q$select private.today_ist()$q$, 'permission denied');
 
+-- ---------- Food units (005): the database calculates the grams ----------
+-- Helper: insert one food on the unlocked day d5 and return its stored weight.
+create function test.unit_weight(p_amount numeric, p_unit text, p_gpu numeric, p_sent_weight numeric default null)
+returns numeric language plpgsql as $$
+declare w numeric;
+begin
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000a', true);
+  set local role authenticated;
+  insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, amount, unit, grams_per_unit)
+    values ('11111111-0000-0000-0000-000000000005', 'snack', 'Unit test', p_sent_weight, 'raw', 10, p_amount, p_unit, p_gpu)
+    returning weight_g into w;
+  reset role;
+  return w;
+end;
+$$;
+select test.check('units: 3 piece x 33.33 g = exactly 99.99 g (no rounding failure)', test.unit_weight(3, 'piece', 33.33) = 99.99, test.unit_weight(3, 'piece', 33.33)::text);
+select test.check('units: 0.33 tsp x 3.33 g = exactly 1.0989 g', test.unit_weight(0.33, 'tsp', 3.33) = 1.0989, test.unit_weight(0.33, 'tsp', 3.33)::text);
+select test.check('units: 500 mg = 0.5 g', test.unit_weight(500, 'mg', null) = 0.5);
+select test.check('units: 5 mg = 0.005 g (tiny amounts are not rounded to 0)', test.unit_weight(5, 'mg', null) = 0.005);
+select test.check('units: 150.5 g = 150.5 g', test.unit_weight(150.5, 'g', null) = 150.5);
+select test.check('units: 250 ml x 1.03 g = 257.5 g', test.unit_weight(250, 'ml', 1.03) = 257.5);
+select test.check('units: 2 tbsp x 12.5 g = 25 g', test.unit_weight(2, 'tbsp', 12.5) = 25);
+select test.check('units: a wrong weight sent by the app is replaced', test.unit_weight(2, 'piece', 50, 999) = 100);
+select test.run('units: piece without grams per unit is refused (even with a weight sent)', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, amount, unit) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Egg', 50, 'raw', 70, 1, 'piece')$q$, 'food_grams_per_unit_rule');
+select test.run('units: g with grams per unit is refused', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_state, kcal, amount, unit, grams_per_unit) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Oats', 'raw', 70, 40, 'g', 1)$q$, 'food_grams_per_unit_rule');
+select test.run('units: mg with grams per unit is refused', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_state, kcal, amount, unit, grams_per_unit) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Salt', 'raw', 0, 400, 'mg', 1)$q$, 'food_grams_per_unit_rule');
+select test.run('units: unit without amount is refused', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, unit) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Oats', 40, 'raw', 70, 'g')$q$, 'food_amount_and_unit_together');
+select test.run('units: amount without unit is refused', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, amount) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Oats', 40, 'raw', 70, 40)$q$, 'food_amount_and_unit_together');
+select test.run('units: unknown unit is refused', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, amount, unit) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Milk', 240, 'raw', 70, 1, 'cup')$q$, 'food_items_unit_check');
+select test.run('units: amount with 3 decimals is refused', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_state, kcal, amount, unit) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Oats', 'raw', 70, 40.125, 'g')$q$, 'food_items_amount_check');
+select test.run('units: grams per unit with 3 decimals is refused', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_state, kcal, amount, unit, grams_per_unit) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Egg', 'raw', 70, 1, 'piece', 50.125)$q$, 'food_items_grams_per_unit_check');
+select test.run('units: zero amount is refused', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_state, kcal, amount, unit) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Oats', 'raw', 70, 0, 'g')$q$, 'food_items_amount_check');
+select test.run('units: result above 5,000 g is refused (200 x 30 g)', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_state, kcal, amount, unit, grams_per_unit) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Egg', 'raw', 70, 200, 'piece', 30)$q$, 'food_items_weight_g_check');
+select test.run('units: old-style entry (grams only, no unit) still works', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal) values ('11111111-0000-0000-0000-000000000005', 'snack', 'Old app', 42, 'raw', 70)$q$, null, 1);
+select test.check('units: old-style entry keeps its grams, unit blank',
+  (select weight_g = 42 and amount is null and unit is null from public.food_items where food = 'Old app'));
+select test.run('units: editing the amount recalculates the grams', 'authenticated', :A,
+  $q$update public.food_items set amount = 4 where food = 'Unit test' and unit = 'tbsp'$q$, null, 1);
+select test.check('units: 4 tbsp x 12.5 g = 50 g after edit',
+  (select weight_g = 50 from public.food_items where food = 'Unit test' and unit = 'tbsp'));
+-- A unit entry on today (d4), which gets confirmed below: the lock must cover it.
+select test.run('units: owner adds 2 eggs on today', 'authenticated', :A,
+  $q$insert into public.food_items (id, day_id, meal, food, weight_state, kcal, amount, unit, grams_per_unit)
+     values ('22222222-0000-0000-0000-000000000007', '11111111-0000-0000-0000-000000000004', 'breakfast', 'Egg', 'raw', 140, 2, 'piece', 50)$q$, null, 1);
+select test.run('units: intruder cannot read the owner''s unit entries', 'authenticated', :B,
+  $q$select * from public.food_items where unit is not null$q$, null, 0);
+
 -- ---------- Confirming ----------
 select test.run('cannot insert an already-confirmed day', 'authenticated', :A,
   $q$insert into public.days (log_date, confirmed_at) values ('2026-09-02', now())$q$, 'must be saved');
@@ -218,6 +277,19 @@ select test.run('locked: cannot change a drink description', 'authenticated', :A
   $q$update public.fluids set description = 'changed' where day_id = '11111111-0000-0000-0000-000000000001'$q$, 'locked');
 select test.run('locked: cannot delete cardio', 'authenticated', :A,
   $q$delete from public.cardio_sessions where day_id = '11111111-0000-0000-0000-000000000001'$q$, 'locked');
+
+select test.run('locked: cannot change a food amount', 'authenticated', :A,
+  $q$update public.food_items set amount = 3 where id = '22222222-0000-0000-0000-000000000007'$q$, 'locked');
+select test.run('locked: cannot change grams per unit', 'authenticated', :A,
+  $q$update public.food_items set grams_per_unit = 60 where id = '22222222-0000-0000-0000-000000000007'$q$, 'locked');
+select test.run('locked: cannot add a unit to an old entry', 'authenticated', :A,
+  $q$update public.food_items set amount = 60, unit = 'g' where id = '22222222-0000-0000-0000-000000000001'$q$, 'locked');
+select test.run('locked: cannot add food with units', 'authenticated', :A,
+  $q$insert into public.food_items (day_id, meal, food, weight_state, kcal, amount, unit, grams_per_unit) values ('11111111-0000-0000-0000-000000000004', 'snack', 'Egg', 'raw', 70, 1, 'piece', 50)$q$, 'locked');
+select test.run('dashboard: cannot change a locked food amount', 'postgres', null,
+  $q$update public.food_items set amount = 3 where id = '22222222-0000-0000-0000-000000000007'$q$, 'locked');
+select test.check('locked unit entry unchanged: 2 piece x 50 g = 100 g',
+  (select amount = 2 and unit = 'piece' and grams_per_unit = 50 and weight_g = 100 from public.food_items where id = '22222222-0000-0000-0000-000000000007'));
 
 -- Even the Supabase dashboard (database owner) is stopped by the lock.
 select test.run('dashboard: cannot change locked day', 'postgres', null,
