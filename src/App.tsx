@@ -3,8 +3,16 @@ import type { Session, SupabaseClient } from '@supabase/supabase-js'
 import { isConfigured, supabase } from './lib/supabase'
 import Login from './Login'
 import DayScreen from './DayScreen'
+import ShareScreen from './ShareScreen'
+import SharePage from './SharePage'
+import { tokenFromPath } from './lib/share'
 
 function App() {
+  // A /share/<token> address shows the read-only viewer page: no login, nothing editable.
+  const shareToken = tokenFromPath(window.location.pathname)
+  if (shareToken !== null) {
+    return <SharePage supabase={supabase} token={isConfigured ? shareToken : ''} />
+  }
   if (!isConfigured || !supabase) {
     return (
       <main className="screen">
@@ -24,6 +32,7 @@ function App() {
 function AuthGate({ supabase }: { supabase: SupabaseClient }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
+  const [view, setView] = useState<'day' | 'share'>('day')
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -48,7 +57,11 @@ function AuthGate({ supabase }: { supabase: SupabaseClient }) {
     return <Login supabase={supabase} />
   }
 
-  return <DayScreen supabase={supabase} email={session.user.email ?? ''} />
+  const email = session.user.email ?? ''
+  if (view === 'share') {
+    return <ShareScreen supabase={supabase} email={email} onBack={() => setView('day')} />
+  }
+  return <DayScreen supabase={supabase} email={email} onOpenShare={() => setView('share')} />
 }
 
 export default App
