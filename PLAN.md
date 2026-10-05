@@ -100,6 +100,24 @@ The database works out "today" with its own clock, not the phone's.
 - Drink type "Other" and cardio type "Other" have an optional description (max 100 characters).
 - Drinks and cardio save as soon as you tap Add or Update, like food.
 
+## Confirm & notes behaviour
+
+- "Confirm day…" (today or past days only) opens a full summary of the day, lists every field left
+  blank ("not answered"), and warns if it is still today. Buttons: "Go back" / "Confirm & lock forever".
+- Confirming is blocked while anything is unsaved. Blank fields are allowed (they stay blank forever).
+- The confirm time comes from the database clock and is shown in India time ("🔒 Confirmed 5 Oct 2026, 22:14").
+- Notes can be added on any day, including locked days, and can never be edited or deleted.
+- Notice at the top: "N earlier days not confirmed", newest first, with links. It counts every date from the
+  first logged day up to yesterday that is not confirmed, including dates with nothing logged.
+  Each shows "X days left" in a 7-day window; overdue days are red.
+
+## Points system (later step, not built yet)
+
+- **Clean day** = junk meals = 0 AND porn = No AND gaming ≤ 2 h. If any of the three is blank, the day is not clean.
+- A day not confirmed within 7 days is penalised.
+- **Open question:** exact 7-day boundary. The notice currently treats a day as "last day to confirm" when it is
+  7 days old and overdue from 8 days old. Confirm or correct this before building points.
+
 ## Share page (read-only, confirmed days only)
 
 - **Shown:** weight, food totals (including drink kcal), fluid totals (water / sugary / total vs 4 L), steps, cardio, sleep times, junk meals.
@@ -127,7 +145,7 @@ Food database, charts, gym log, points/rank system, lab results, reminders, offl
 4. Login (owner only): done
 5. Day screen: body, sleep, stress, steps: done
 6. Food log + kcal bar: done
-7. Fluids + cardio
+7. Fluids + cardio: done
 8. Confirm & lock + notes
 9. Share links + read-only page
 10. PWA install + data export

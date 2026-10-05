@@ -11,6 +11,9 @@ import { Field, ScaleButtons, TextInput, TriStateButtons } from './components/in
 import FoodSection from './FoodSection'
 import FluidsSection, { type DrinkKcal } from './FluidsSection'
 import CardioSection from './CardioSection'
+import NotesSection from './NotesSection'
+import ConfirmDialog from './ConfirmDialog'
+import { deadlineText, formatDateTimeIST, unconfirmedDays } from './lib/confirm'
 
 const UNSAVED_WARNING = 'You have unsaved changes. Leave without saving them?'
 
@@ -29,12 +32,17 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
   const [fluidsDirty, setFluidsDirty] = useState(false)
   const [cardioDirty, setCardioDirty] = useState(false)
   const [drinkKcal, setDrinkKcal] = useState<DrinkKcal>({ known: 0, unknownCount: 0 })
+  const [notesDirty, setNotesDirty] = useState(false)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [allDays, setAllDays] = useState<{ log_date: string; confirmed_at: string | null }[]>([])
+  const [showAllPending, setShowAllPending] = useState(false)
   const requestId = useRef(0)
 
   const dirty = !formsEqual(form, savedForm)
-  const anyDirty = dirty || foodDirty || fluidsDirty || cardioDirty
+  const anyDirty = dirty || foodDirty || fluidsDirty || cardioDirty || notesDirty
   const locked = Boolean(savedRow?.confirmed_at)
   const today = todayIST()
+  const pending = unconfirmedDays(allDays, today)
 
   // Shows the loading state and clears messages. Called from taps, not from effects.
   function resetForLoad() {
@@ -67,6 +75,18 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
     fetchDay(date)
   }, [date, fetchDay])
 
+  // Every day's date and lock state, for the "earlier days not confirmed" notice.
+  // Re-read whenever this day's row appears or gets confirmed.
+  const savedRowId = savedRow?.id
+  const savedRowConfirmed = savedRow?.confirmed_at
+  useEffect(() => {
+    let cancelled = false
+    supabase.from('days').select('log_date, confirmed_at').then(({ data }) => {
+      if (!cancelled && data) setAllDays(data)
+    })
+    return () => { cancelled = true }
+  }, [supabase, savedRowId, savedRowConfirmed])
+
   // Warn before closing or reloading the page with unsaved changes.
   useEffect(() => {
     if (!anyDirty) return
@@ -85,6 +105,8 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
     setFluidsDirty(false)
     setCardioDirty(false)
     setDrinkKcal({ known: 0, unknownCount: 0 })
+    setNotesDirty(false)
+    setConfirmOpen(false)
     resetForLoad()
     setDate(newDate)
   }
@@ -216,15 +238,45 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
           ▶
         </button>
       </nav>
-      {date !== today && (
-        <div className="center">
+      <div className="day-status">
+        {loadState === 'ready' && (
+          locked
+            ? <span className="status-locked">🔒 Confirmed {formatDateTimeIST(savedRow!.confirmed_at!)}</span>
+            : <span className="status-open">Not confirmed</span>
+        )}
+        {date !== today && (
           <button type="button" className="link" onClick={() => goTo(today)}>
             Go to today
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <main className="content">
+        {pending.length > 0 && (
+          <section className={pending.some((p) => p.daysLeft < 0) ? 'card pending overdue' : 'card pending'} aria-label="Earlier days not confirmed">
+            <h2>{pending.length} earlier day{pending.length === 1 ? '' : 's'} not confirmed</h2>
+            <ul className="pending-list">
+              {(showAllPending ? pending : pending.slice(0, 5)).map((p) => (
+                <li key={p.date}>
+                  <button type="button" className="link" onClick={() => goTo(p.date)} disabled={p.date === date}>
+                    {formatDateLabel(p.date)}
+                  </button>
+                  <span className="pending-meta">
+                    <span className={p.daysLeft < 0 ? 'deadline late' : p.daysLeft <= 1 ? 'deadline soon' : 'deadline'}>
+                      {deadlineText(p)}
+                    </span>
+                    {!p.hasEntries && <span className="muted small"> · nothing logged</span>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            {pending.length > 5 && (
+              <button type="button" className="link" onClick={() => setShowAllPending((v) => !v)}>
+                {showAllPending ? 'Show fewer' : `Show all ${pending.length}`}
+              </button>
+            )}
+          </section>
+        )}
         {loadState === 'loading' && <p className="muted center">Loading…</p>}
         {loadState === 'error' && (
           <div className="card">
@@ -235,7 +287,7 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
         {loadState === 'ready' && (
           <>
             {locked && (
-              <p className="banner">This day is confirmed and locked. Values can no longer be changed.</p>
+              <p className="banner">🔒 This day is confirmed and locked. Values can no longer be changed. You can still add notes.</p>
             )}
 
             <section className="card">
@@ -311,9 +363,46 @@ function DayScreen({ supabase, email }: { supabase: SupabaseClient; email: strin
               {numberField('junk_meals', 'Junk meals', 'blank = not answered', 'numeric')}
             </section>
             <p className="muted small center">Tap a selected number again to clear it.</p>
+
+            <NotesSection
+              key={`notes-${date}`}
+              supabase={supabase}
+              dayId={savedRow?.id ?? null}
+              ensureDay={ensureDay}
+              onDirtyChange={setNotesDirty}
+            />
+
+            {!locked && date <= today && (
+              <section className="card confirm-card">
+                <h2>Confirm this day</h2>
+                <p className="small">When everything is logged, confirm the day. It then locks forever (notes can still be added).</p>
+                {anyDirty && <p className="warning small">Save or cancel your changes first.</p>}
+                <button type="button" className="lock-button" disabled={anyDirty} onClick={() => setConfirmOpen(true)}>
+                  🔒 Confirm day…
+                </button>
+              </section>
+            )}
+            {!locked && date > today && (
+              <p className="muted small center">Future days can be logged but not confirmed.</p>
+            )}
           </>
         )}
       </main>
+
+      {confirmOpen && (
+        <ConfirmDialog
+          supabase={supabase}
+          date={date}
+          isToday={date === today}
+          row={savedRow}
+          ensureDay={ensureDay}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirmed={() => {
+            setConfirmOpen(false)
+            fetchDay(date)
+          }}
+        />
+      )}
 
       {loadState === 'ready' && !locked && (
         <footer className="savebar">
