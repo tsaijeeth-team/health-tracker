@@ -1,5 +1,5 @@
 // Food items: form values, checks, totals, the calorie bar and recent-food scaling.
-// Limits mirror supabase/migrations/001_init.sql and 002_fibre_sum.sql.
+// Limits mirror supabase/migrations/001_init.sql, 002_fibre_sum.sql and 005_food_units.sql.
 // Blank nutrient = unknown. Unknowns are never treated as 0 in totals.
 
 export const KCAL_CAP = 2000
@@ -23,6 +23,12 @@ export const DATA_SOURCES = [
   { value: 'other', label: 'Other' },
 ] as const
 
+// Amount units. g and mg convert by themselves; the others need the owner's grams per unit (never guessed).
+export const FOOD_UNITS = ['g', 'mg', 'ml', 'piece', 'tsp', 'tbsp'] as const
+export type FoodUnit = (typeof FOOD_UNITS)[number]
+export const needsGramsPerUnit = (unit: FoodUnit) => unit !== 'g' && unit !== 'mg'
+export const MAX_WEIGHT_G = 5000
+
 export type Meal = (typeof MEALS)[number]['value']
 export type DataSource = (typeof DATA_SOURCES)[number]['value']
 export type WeightState = 'raw' | 'cooked'
@@ -33,6 +39,10 @@ export type FoodRow = {
   meal: Meal
   food: string
   weight_g: number
+  // What was typed. Blank on entries made before food units existed: those are grams.
+  amount: number | null
+  unit: FoodUnit | null
+  grams_per_unit: number | null
   weight_state: WeightState
   kcal: number
   protein_g: number | null
@@ -49,7 +59,9 @@ export type FoodRow = {
 export type FoodForm = {
   meal: Meal | ''
   food: string
-  weight_g: string
+  amount: string
+  unit: FoodUnit
+  grams_per_unit: string
   weight_state: WeightState | ''
   kcal: string
   protein_g: string
@@ -73,7 +85,9 @@ export type NutrientKey = (typeof NUTRIENT_KEYS)[number]
 export const EMPTY_FOOD_FORM: FoodForm = {
   meal: '',
   food: '',
-  weight_g: '',
+  amount: '',
+  unit: 'g',
+  grams_per_unit: '',
   weight_state: '',
   kcal: '',
   protein_g: '',
@@ -92,7 +106,9 @@ export function foodFormFromRow(row: FoodRow): FoodForm {
   return {
     meal: row.meal,
     food: row.food,
-    weight_g: text(row.weight_g),
+    amount: text(row.amount ?? row.weight_g),
+    unit: row.unit ?? 'g',
+    grams_per_unit: text(row.grams_per_unit),
     weight_state: row.weight_state,
     kcal: text(row.kcal),
     protein_g: text(row.protein_g),
@@ -151,7 +167,16 @@ export function validateFoodForm(form: FoodForm): { errors: FoodErrors; payload:
   const food = form.food.trim()
   if (!food) errors.food = 'Enter the food name.'
   else if (food.length > 200) errors.food = 'Food name can be at most 200 characters.'
-  const weight_g = amount(form.weight_g, 5000, 'Weight', ' g', errors, 'weight_g', { required: true, aboveZero: true })
+  const unit = form.unit
+  const qty = amount(form.amount, 5000000, 'Amount', ` ${unit}`, errors, 'amount', { required: true, aboveZero: true })
+  const perUnit = needsGramsPerUnit(unit)
+    ? amount(form.grams_per_unit, 1000, `Grams per ${unit}`, ' g', errors, 'grams_per_unit', { required: true, aboveZero: true })
+    : null
+  let weight_g: number | null = null
+  if (qty !== null && (perUnit !== null || !needsGramsPerUnit(unit))) {
+    weight_g = gramsFor(qty, unit, perUnit)
+    if (weight_g > MAX_WEIGHT_G) errors.amount = `That is ${formatGrams(weight_g)}. One entry can be at most ${formatNumber(MAX_WEIGHT_G)} g.`
+  }
   if (!form.weight_state) errors.weight_state = 'Choose raw or cooked.'
   const kcal = amount(form.kcal, 10000, 'Calories', ' kcal', errors, 'kcal', { required: true })
   const protein_g = amount(form.protein_g, 1000, 'Protein', ' g', errors, 'protein_g')
@@ -175,7 +200,10 @@ export function validateFoodForm(form: FoodForm): { errors: FoodErrors; payload:
     payload: {
       meal: form.meal as Meal,
       food,
-      weight_g: weight_g!,
+      weight_g: weight_g!, // the database recalculates this from amount + unit
+      amount: qty!,
+      unit,
+      grams_per_unit: perUnit,
       weight_state: form.weight_state as WeightState,
       kcal: kcal!,
       protein_g,
@@ -188,6 +216,45 @@ export function validateFoodForm(form: FoodForm): { errors: FoodErrors; payload:
       data_source: form.data_source || null,
     },
   }
+}
+
+// ---------- Amount + unit -> grams ----------
+
+// Exact grams for an amount (max 2 decimals) in a unit. Works in whole hundredths, so
+// 0.1 x 3 is exactly 0.3 (plain JavaScript maths gives 0.30000000000000004).
+// The database does the same sum with exact decimals; it is the final word.
+export function gramsFor(amount: number, unit: FoodUnit, gramsPerUnit: number | null): number {
+  const a = Math.round(amount * 100) // hundredths
+  if (unit === 'g') return a / 100
+  if (unit === 'mg') return a / 100000
+  const g = Math.round((gramsPerUnit ?? 0) * 100)
+  return (a * g) / 10000
+}
+
+// Grams for a form, or null while amount / grams per unit are incomplete or invalid.
+export function formGrams(form: Pick<FoodForm, 'amount' | 'unit' | 'grams_per_unit'>): number | null {
+  const num = (v: string) => {
+    const t = v.trim().replace(',', '.')
+    return /^\d+(\.\d{1,2})?$/.test(t) && Number(t) > 0 ? Number(t) : null
+  }
+  const a = num(form.amount)
+  if (a === null) return null
+  if (!needsGramsPerUnit(form.unit)) return gramsFor(a, form.unit, null)
+  const g = num(form.grams_per_unit)
+  return g === null ? null : gramsFor(a, form.unit, g)
+}
+
+// Up to 4 decimals for grams (tiny mg amounts must not show as 0 g).
+export function formatGrams(g: number): string {
+  return `${new Intl.NumberFormat('en-IN', { maximumFractionDigits: 4 }).format(g)} g`
+}
+
+// What the owner typed: "150 g", "500 mg", "2 piece (100 g)". Old entries (no unit) are grams.
+export function formatQuantity(row: Pick<FoodRow, 'weight_g' | 'amount' | 'unit'>): string {
+  const n = (v: number) => new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 }).format(Number(v))
+  if (row.amount == null || row.unit == null || row.unit === 'g') return `${n(row.amount ?? row.weight_g)} g`
+  if (row.unit === 'mg') return `${n(row.amount)} mg`
+  return `${n(row.amount)} ${row.unit} (${formatGrams(Number(row.weight_g))})`
 }
 
 // ---------- Totals ----------
@@ -238,7 +305,7 @@ export function kcalLevel(total: number): KcalLevel {
 
 export type RecentFood = Pick<
   FoodRow,
-  'food' | 'weight_g' | 'weight_state' | 'kcal' | 'protein_g' | 'carbs_g' | 'fat_g'
+  'food' | 'weight_g' | 'amount' | 'unit' | 'grams_per_unit' | 'weight_state' | 'kcal' | 'protein_g' | 'carbs_g' | 'fat_g'
   | 'fibre_total_g' | 'fibre_soluble_g' | 'fibre_insoluble_g' | 'data_source' | 'meal' | 'created_at'
 >
 
@@ -254,6 +321,20 @@ export function recentFoods(rows: RecentFood[]): RecentFood[] {
   }
   return [...seen.values()]
 }
+
+// The owner's last grams per unit for a food, by (food name, raw/cooked, unit). Never a default:
+// a food never entered in that unit has no value.
+export function gramsPerUnitMemory(rows: RecentFood[]): Map<string, number> {
+  const sorted = [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at))
+  const memory = new Map<string, number>()
+  for (const row of sorted) {
+    if (row.unit == null || row.grams_per_unit == null) continue
+    const key = memoryKey(row.food, row.weight_state, row.unit)
+    if (!memory.has(key)) memory.set(key, Number(row.grams_per_unit))
+  }
+  return memory
+}
+export const memoryKey = (food: string, state: WeightState | '', unit: FoodUnit) => `${recentKey(food, state as WeightState)}|${unit}`
 
 // Rounds half up, immune to floating-point slips like 227.49999 for 227.5.
 function roundTo(n: number, decimals: number): number {
@@ -305,7 +386,7 @@ export function scaledNutrients(base: RecentFood, grams: string): Record<Nutrien
   ) as Record<NutrientKey, string>
 }
 
-// A new form pre-filled from a recent food at its last weight.
+// A new form pre-filled from a recent food at its last amount and unit.
 export function formFromRecent(base: RecentFood, meal: Meal | ''): FoodForm {
   const nutrients = scaledNutrients(base, String(base.weight_g))!
   return {
@@ -313,7 +394,9 @@ export function formFromRecent(base: RecentFood, meal: Meal | ''): FoodForm {
     ...nutrients,
     meal,
     food: base.food,
-    weight_g: String(base.weight_g),
+    amount: String(base.amount ?? base.weight_g),
+    unit: base.unit ?? 'g',
+    grams_per_unit: base.grams_per_unit === null ? '' : String(base.grams_per_unit),
     weight_state: base.weight_state,
     data_source: base.data_source ?? '',
   }

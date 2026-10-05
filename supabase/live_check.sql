@@ -1,5 +1,5 @@
 -- =====================================================================
--- Health Tracker: LIVE CHECK of the real database (build steps 4 and 11)
+-- Health Tracker: LIVE CHECK of the real database (build steps 4, 11 and food units)
 --
 -- Run in Supabase: SQL Editor -> New query -> paste ALL -> Run.
 -- Do not highlight part of it: the editor would run only the highlighted part.
@@ -249,7 +249,43 @@ begin
     failures := failures || ('could not create a share link: ' || sqlerrm);
   end;
 
-  -- ---- 30-32. Share page, as a logged-out visitor ----
+  -- ---- 30-33. Food units (005): the database calculates the grams ----
+  begin
+    insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, amount, unit, grams_per_unit)
+      values (future_day, 'breakfast', 'TEST', 1, 'raw', 210, 3, 'piece', 33.33)
+      returning weight_g::text into val;
+    if val::numeric = 99.99 then passed := passed + 1;
+    else failures := failures || ('3 piece x 33.33 g should be exactly 99.99 g, got ' || coalesce(val, 'nothing'));
+    end if;
+  exception when others then
+    failures := failures || ('could not add food with a unit (did you run 005_food_units.sql?): ' || sqlerrm);
+  end;
+  begin
+    insert into public.food_items (day_id, meal, food, weight_state, kcal, amount, unit)
+      values (future_day, 'breakfast', 'TEST', 'raw', 0, 400, 'mg')
+      returning weight_g::text into val;
+    if val::numeric = 0.4 then passed := passed + 1;
+    else failures := failures || ('400 mg should be 0.4 g, got ' || coalesce(val, 'nothing'));
+    end if;
+  exception when others then
+    failures := failures || ('could not add food in mg: ' || sqlerrm);
+  end;
+  begin
+    insert into public.food_items (day_id, meal, food, weight_g, weight_state, kcal, amount, unit)
+      values (future_day, 'breakfast', 'TEST', 50, 'raw', 70, 1, 'piece');
+    failures := failures || 'piece without grams per unit was NOT blocked'::text;
+  exception when others then passed := passed + 1;
+  end;
+  begin
+    update public.food_items set amount = 60, unit = 'g' where id = food_id;
+    failures := failures || 'locked: adding a unit to locked food was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%locked%' then passed := passed + 1;
+    else failures := failures || ('locked unit change blocked for the wrong reason: ' || sqlerrm);
+    end if;
+  end;
+
+  -- ---- 34-36. Share page, as a logged-out visitor ----
   reset role;
   perform set_config('request.jwt.claim.sub', '', true);
   perform set_config('request.jwt.claims', json_build_object('role', 'anon')::text, true);
@@ -278,7 +314,7 @@ begin
   exception when others then passed := passed + 1;
   end;
 
-  -- ---- 33-34. Switching a link off is immediate and permanent ----
+  -- ---- 37-38. Switching a link off is immediate and permanent ----
   reset role;
   perform set_config('request.jwt.claim.sub', owner_id::text, true);
   perform set_config('request.jwt.claims', json_build_object('sub', owner_id, 'role', 'authenticated')::text, true);
@@ -299,7 +335,7 @@ begin
 
   -- ---- Report (stops the transaction on purpose, so nothing is saved) ----
   if cardinality(failures) = 0 then
-    raise exception 'LIVE CHECK PASSED: % of 34 checks passed. Everything was undone; nothing was saved.', passed;
+    raise exception 'LIVE CHECK PASSED: % of 38 checks passed. Everything was undone; nothing was saved.', passed;
   else
     raise exception 'LIVE CHECK FAILED: % passed, % failed: %. Nothing was saved.',
       passed, cardinality(failures), array_to_string(failures, ' | ');

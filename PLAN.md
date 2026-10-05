@@ -19,7 +19,7 @@ The database works out "today" with its own clock, not the phone's.
 ## Units
 
 - Body weight: kg, 1 decimal
-- Food weight: g
+- Food amount: g, mg, ml, piece, tsp or tbsp; always stored as grams too (see Food units)
 - Fluids: ml
 
 ## Daily log fields
@@ -89,6 +89,21 @@ The database works out "today" with its own clock, not the phone's.
   Unknown stays unknown. Changing a value by hand stops automatic scaling.
 - Fibre: soluble + insoluble cannot exceed total (checked in the app and in the database).
 
+## Food units (built after step 11, before step 12)
+
+- Amount + unit: g, mg, ml, piece, tsp, tbsp. Raw/cooked stays required.
+- g is used as typed; mg converts by itself (÷ 1,000).
+- ml, piece, tsp, tbsp need "grams per unit" for that food. It is never guessed.
+  - Remembered per food + raw/cooked + unit (newest entry wins) and pre-filled next time; editable.
+  - A value typed by hand is never overwritten.
+- The list shows what was typed: "2 piece (100 g)", "500 mg", "150 g".
+- Grams stay the main number (totals, recent-food scaling, share page). The **database calculates** them:
+  amount × grams per unit. Both allow at most 2 decimals, so the result is exact (3 × 33.33 = 99.99), never rounded.
+- One entry can be at most 5,000 g after conversion.
+- Recent foods keep the last unit; changing amount, unit or grams per unit rescales every nutrient by grams.
+- Old entries are not rewritten (that would break the lock); they count as grams.
+- Database change: `005_food_units.sql`. The confirm-lock covers the new columns.
+
 ## Fluids & cardio behaviour
 
 - "+ Add drink" opens the form with type Water and the current India time pre-selected,
@@ -116,7 +131,8 @@ The database works out "today" with its own clock, not the phone's.
 - **Clean day** = junk meals = 0 AND porn = No AND gaming ≤ 2 h. If any of the three is blank, the day is not clean.
 - **Missed confirm (−20 points):** a day counts as missed if it is not confirmed by 23:59 India time on the
   7th day after it. Example: 5 Oct must be confirmed by 12 Oct, 23:59 IST.
-- A logged gym session earns +10 points (see step 12).
+- Gym: +10 points per day with a gym session (max one session per day). A session only earns points if it has
+  at least 1 exercise with 3 or more sets.
 - The "earlier days not confirmed" notice already follows this rule: "last day to confirm" on the 7th day after,
   "over 7 days" from the 8th day (India time).
 
@@ -181,6 +197,8 @@ The database works out "today" with its own clock, not the phone's.
   - `supabase/migrations/002_fibre_sum.sql`
   - `supabase/migrations/003_other_descriptions.sql`
   - `supabase/migrations/004_share_function.sql`
+  - `supabase/migrations/005_food_units.sql`
+  - `supabase/migrations/006_gym.sql` (comes with step 12)
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
 - Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 
@@ -188,7 +206,11 @@ The database works out "today" with its own clock, not the phone's.
 
 The owner joins the gym on 19 Oct 2026, so this step must be merged and live by 18 Oct.
 
+**Placement:** a Gym card inside the Workout section, directly after the Steps field.
+Graphs are on a separate "Progress" screen.
+
 **Gym session**
+- One session per day at most, enforced in the database too (not just the app).
 - Date, start time
 - Muscle groups (multi-select): chest, back, shoulders, arms, legs, core
 
@@ -196,13 +218,15 @@ The owner joins the gym on 19 Oct 2026, so this step must be merged and live by 
 - Picked from a saved exercise list the owner can add to. No free-text duplicates
   (e.g. "Bench press" and "bench press " count as the same exercise).
 - Each exercise in a session: sets, each with reps and weight (kg), plus an optional note per exercise.
+- A new set copies the previous set's reps and kg.
+- Limits: weight 0–500 kg (up to 2 decimals), reps 1–100.
 
 **Graph per exercise over time**
 - Top-set weight
 - Total volume = sum of sets × reps × weight
 - Estimated 1-rep max
 
-**Points:** a logged gym session earns +10 points (points step).
+**Points:** +10 per day with a gym session, only if it has at least 1 exercise with 3 or more sets (points step).
 
 **Decisions (owner, 5 Oct 2026):**
 1. **Estimated 1-rep max (e1RM):** Epley, weight × (1 + reps ÷ 30), using only sets with ≤ 10 reps.
@@ -214,9 +238,26 @@ The owner joins the gym on 19 Oct 2026, so this step must be merged and live by 
 3. **Bodyweight exercises:** 0 kg is allowed; their graph also shows total reps per session.
 4. **Locking:** a gym session locks when its day is confirmed (same as food, drinks and cardio).
 
+## Step 13: Micronutrients (after step 12)
+
+Optional per-food fields. Blank = unknown, never estimated.
+
+| Unit | Nutrients |
+|---|---|
+| mg | sodium, potassium, calcium, magnesium, iron, zinc, phosphorus, vitamin C |
+| µg | selenium, vitamin B12, folate, vitamin A, iodine |
+| µg (also shown as IU = µg × 40) | vitamin D |
+
+- Daily totals like macros: "at least X (N items unknown)".
+- Recent-food scaling scales them by grams too.
+- Daily targets: ICMR-NIN 2020, adult man. Exact numbers copied from the official table when this step is built.
+- Not on the share page unless the owner decides otherwise later.
+- Decide before building: RDA or EAR as the target (recommended: RDA); activity level (recommended: moderate);
+  sodium shown as a "stay under" cap (recommended).
+
 ## Not in version 1
 
-Food database, charts (except the gym graph in step 12), points/rank system, lab results, reminders, offline saving.
+Food database, charts (except the gym graph in step 12), micronutrients (step 13), points/rank system, lab results, reminders, offline saving.
 
 ## Build steps
 
@@ -230,5 +271,10 @@ Food database, charts (except the gym graph in step 12), points/rank system, lab
 8. Confirm & lock + notes: done
 9. Share links + read-only page: done
 10. PWA install + data export: done
-11. Security check, go live
+11. Security check, go live: done
+- Food units (amount + unit; built before step 12)
 12. Gym log + progressive overload graph (live by 18 Oct 2026)
+13. Micronutrients
+14. Points + rank (rank also on the share page)
+
+Priority order: food units → step 12 → step 13 → points/rank.

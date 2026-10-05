@@ -1078,3 +1078,14 @@ a.button-link.secondary {
 .save-status .error {
   display: inline-block;
 }
+
+/* ---------- Food amount + unit ---------- */
+
+.chip-grid.units {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.grams-preview {
+  margin: 0;
+  font-weight: 600;
+}
