@@ -621,3 +621,226 @@ dd.sugary {
 .cardio-total {
   margin: 0;
 }
+
+/* ---------- Confirm, notice & notes ---------- */
+
+.day-status {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 16px 0;
+  font-size: 0.9rem;
+}
+
+.status-locked {
+  font-weight: 600;
+  color: var(--green);
+}
+
+.status-open {
+  color: var(--muted);
+}
+
+.pending {
+  border-color: var(--amber);
+}
+
+.pending.overdue {
+  border-color: var(--red);
+}
+
+.pending-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pending-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pending-list button.link {
+  padding: 4px 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pending-meta {
+  text-align: right;
+}
+
+.pending-list button.link:disabled {
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.deadline {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.deadline.soon { color: var(--amber); }
+.deadline.late { color: var(--red); }
+
+.notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notes li {
+  padding: 8px 10px;
+  border-left: 3px solid var(--border);
+  background: var(--bg);
+  border-radius: 6px;
+}
+
+.notes p {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+textarea {
+  width: 100%;
+  font: inherit;
+  font-size: 1rem;
+  padding: 10px 12px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+}
+
+.confirm-card {
+  border: 2px solid var(--accent);
+}
+
+button.lock-button {
+  font-weight: 700;
+}
+
+/* Confirm summary dialog */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.dialog {
+  width: 100%;
+  max-width: 560px;
+  max-height: 92vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-radius: 16px 16px 0 0;
+  overflow: hidden;
+}
+
+/* Only the summary scrolls; the buttons stay fixed underneath it. */
+.dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 16px 12px;
+}
+
+@media (min-width: 600px) {
+  .overlay { align-items: center; }
+  .dialog { border-radius: 16px; }
+}
+
+.dialog h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.dialog-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--amber);
+  background: var(--bg);
+}
+
+.summary h3 {
+  margin: 14px 0 4px;
+  font-size: 0.95rem;
+}
+
+.summary dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.92rem;
+}
+
+.summary dt {
+  color: var(--muted);
+}
+
+.summary dd {
+  margin: 0;
+  text-align: right;
+  font-weight: 600;
+}
+
+.blanks {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.blanks.has-blanks {
+  border: 1px solid var(--amber);
+}
+
+.blanks h3 {
+  margin: 0 0 4px;
+}
+
+.blanks p {
+  margin: 0;
+}
+
+.dialog-buttons {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.dialog-buttons button {
+  flex: 1;
+}
