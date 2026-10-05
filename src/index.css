@@ -621,29 +621,3 @@ dd.sugary {
 .cardio-total {
   margin: 0;
 }
-
-/* "Added 250 ml — Undo": sits just above the save bar. */
-.toast {
-  position: fixed;
-  left: 50%;
-  bottom: calc(80px + env(safe-area-inset-bottom));
-  transform: translateX(-50%);
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: max-content;
-  max-width: calc(100vw - 32px);
-  padding: 10px 16px;
-  color: var(--surface);
-  background: var(--text);
-  border-radius: 999px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
-  font-weight: 600;
-}
-
-.toast-undo {
-  color: var(--surface) !important;
-  font-weight: 700 !important;
-  padding: 4px 8px !important;
-}
