@@ -134,8 +134,12 @@ The database works out "today" with its own clock, not the phone's.
 Values and thresholds are a **draft**. They live in ONE place: `private.points_rules()` in
 `supabase/migrations/007_points.sql`. To change them later, edit that one function and run it again.
 
-**Only confirmed days earn or lose day points.** Points start the day after step 14 goes live (the day after
-`007_points.sql` is run); earlier days are ignored. The database calculates everything (the app and the share
+**Only confirmed days earn or lose day points.** Points start on **Mon, 5 Oct 2026**; earlier days are ignored.
+- Originally the day after `007_points.sql` was run (7 Oct 2026). **Changed to Mon, 5 Oct 2026 (retrospective) on the
+  owner's instruction, 6 Oct 2026**, by `008_points_start.sql`. 5 and 6 Oct count under the normal rules, including
+  the 7-day confirm deadline (12 Oct and 13 Oct, 23:59 IST).
+- The start date is read-only in the app; it is changed only with a database file. The Points & rank screen always
+  shows "Points start on …". The database calculates everything (the app and the share
 page can never disagree). The total can go below 0.
 
 | Rule | Points |
@@ -249,6 +253,7 @@ The .json backup includes the weekly targets. Points themselves are not stored (
   - `supabase/migrations/005_food_units.sql`
   - `supabase/migrations/006_gym.sql`
   - `supabase/migrations/007_points.sql` (step 14)
+  - `supabase/migrations/008_points_start.sql` (points start date → Mon, 5 Oct 2026)
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
 - Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 
