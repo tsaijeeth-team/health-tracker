@@ -20,7 +20,7 @@ export async function fetchAllRows(
 
 export const BACKUP_TABLES = [
   'days', 'food_items', 'fluids', 'cardio_sessions', 'day_notes',
-  'exercises', 'exercise_renames', 'gym_sessions', 'gym_exercises', 'gym_sets',
+  'exercises', 'exercise_renames', 'gym_sessions', 'gym_exercises', 'gym_sets', 'weight_targets',
 ] as const
 export type BackupTable = (typeof BACKUP_TABLES)[number]
 export type BackupData = Record<BackupTable, Row[]>

@@ -15,13 +15,6 @@ export const MEALS = [
   { value: 'other', label: 'Other' },
 ] as const
 
-export const DATA_SOURCES = [
-  { value: 'label', label: 'Label' },
-  { value: 'ifct', label: 'IFCT' },
-  { value: 'usda', label: 'USDA' },
-  { value: 'research', label: 'Research' },
-  { value: 'other', label: 'Other' },
-] as const
 
 // Amount units. g and mg convert by themselves; the others need the owner's grams per unit (never guessed).
 export const FOOD_UNITS = ['g', 'mg', 'ml', 'piece', 'tsp', 'tbsp'] as const
@@ -30,7 +23,8 @@ export const needsGramsPerUnit = (unit: FoodUnit) => unit !== 'g' && unit !== 'm
 export const MAX_WEIGHT_G = 5000
 
 export type Meal = (typeof MEALS)[number]['value']
-export type DataSource = (typeof DATA_SOURCES)[number]['value']
+// Stored values only. The field is hidden from the app (owner, 6 Oct 2026); the database keeps it.
+export type DataSource = 'label' | 'ifct' | 'usda' | 'research' | 'other'
 export type WeightState = 'raw' | 'cooked'
 
 export type FoodRow = {
@@ -71,10 +65,10 @@ export type FoodForm = {
   fibre_soluble_g: string
   fibre_insoluble_g: string
   is_hunger_addon: boolean
-  data_source: DataSource | ''
 }
 
-export type FoodPayload = Omit<FoodRow, 'id' | 'day_id' | 'created_at'>
+// data_source is never sent: new entries leave it empty and edits never touch a stored value.
+export type FoodPayload = Omit<FoodRow, 'id' | 'day_id' | 'created_at' | 'data_source'>
 export type FoodErrors = Partial<Record<keyof FoodForm, string>>
 
 export const NUTRIENT_KEYS = [
@@ -97,7 +91,6 @@ export const EMPTY_FOOD_FORM: FoodForm = {
   fibre_soluble_g: '',
   fibre_insoluble_g: '',
   is_hunger_addon: false,
-  data_source: '',
 }
 
 const text = (n: number | null) => (n === null ? '' : String(n))
@@ -118,7 +111,6 @@ export function foodFormFromRow(row: FoodRow): FoodForm {
     fibre_soluble_g: text(row.fibre_soluble_g),
     fibre_insoluble_g: text(row.fibre_insoluble_g),
     is_hunger_addon: row.is_hunger_addon,
-    data_source: row.data_source ?? '',
   }
 }
 
@@ -213,7 +205,6 @@ export function validateFoodForm(form: FoodForm): { errors: FoodErrors; payload:
       fibre_soluble_g,
       fibre_insoluble_g,
       is_hunger_addon: form.is_hunger_addon,
-      data_source: form.data_source || null,
     },
   }
 }
@@ -306,7 +297,7 @@ export function kcalLevel(total: number): KcalLevel {
 export type RecentFood = Pick<
   FoodRow,
   'food' | 'weight_g' | 'amount' | 'unit' | 'grams_per_unit' | 'weight_state' | 'kcal' | 'protein_g' | 'carbs_g' | 'fat_g'
-  | 'fibre_total_g' | 'fibre_soluble_g' | 'fibre_insoluble_g' | 'data_source' | 'meal' | 'created_at'
+  | 'fibre_total_g' | 'fibre_soluble_g' | 'fibre_insoluble_g' | 'meal' | 'created_at'
 >
 
 const recentKey = (food: string, state: WeightState) => `${food.trim().toLowerCase()}|${state}`
@@ -398,6 +389,5 @@ export function formFromRecent(base: RecentFood, meal: Meal | ''): FoodForm {
     unit: base.unit ?? 'g',
     grams_per_unit: base.grams_per_unit === null ? '' : String(base.grams_per_unit),
     weight_state: base.weight_state,
-    data_source: base.data_source ?? '',
   }
 }

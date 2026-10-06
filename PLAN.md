@@ -34,7 +34,10 @@ The database works out "today" with its own clock, not the phone's.
 - Calories (required); protein, carbs, fat (optional: blank means unknown)
 - Fibre: total, plus optional soluble and insoluble. Blank means unknown. Never estimated.
 - Hunger add-on (y/n). Stays within the meal it followed.
-- Data source (optional): label, IFCT, USDA, research, other
+- ~~Data source (optional): label, IFCT, USDA, research, other~~ **Hidden from the app on the owner's instruction
+  (6 Oct 2026).** Not shown in the food form, food list, recent foods, share page or daily CSV; new entries leave it
+  empty and edits never touch it. The database column and all existing values are kept (confirmed days included),
+  and the .json backup still exports it. No database change.
 - Running daily kcal vs a 2,000 kcal cap. Warning only. Drink kcal is included.
 
 **Fluids** (many entries per day)
@@ -169,6 +172,7 @@ page can never disagree). The total can go below 0.
 - Share page shows the current rank only (no points).
 
 **Weekly target:** set on the Points & rank screen. Weeks run Monday–Sunday (India time).
+The .json backup includes the weekly targets. Points themselves are not stored (always recalculated).
 
 **Details decided while building (owner may change):**
 - A target can be set for this week or a future week, never a past week.

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
-  DATA_SOURCES, EMPTY_FOOD_FORM, FOOD_UNITS, KCAL_CAP, MEALS, NUTRIENT_KEYS,
+  EMPTY_FOOD_FORM, FOOD_UNITS, KCAL_CAP, MEALS, NUTRIENT_KEYS,
   foodFormFromRow, foodFormsEqual, foodTotals, formFromRecent, formGrams, formatGrams, formatNumber, formatQuantity,
   formatTotal, gramsPerUnitMemory, kcalLevel, memoryKey, needsGramsPerUnit, recentFoods, scaledNutrients, validateFoodForm,
   type FoodErrors, type FoodForm, type FoodRow, type Meal, type NutrientKey, type RecentFood,
@@ -109,7 +109,7 @@ function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange, drinkK
     setRecentError('')
     const { data, error } = await supabase
       .from('food_items')
-      .select('food, weight_g, amount, unit, grams_per_unit, weight_state, kcal, protein_g, carbs_g, fat_g, fibre_total_g, fibre_soluble_g, fibre_insoluble_g, data_source, meal, created_at')
+      .select('food, weight_g, amount, unit, grams_per_unit, weight_state, kcal, protein_g, carbs_g, fat_g, fibre_total_g, fibre_soluble_g, fibre_insoluble_g, meal, created_at')
       .order('created_at', { ascending: false })
       .limit(2000)
     if (error) {
@@ -459,18 +459,6 @@ function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange, drinkK
                   className={form.is_hunger_addon === v ? 'chip selected' : 'chip'} aria-pressed={form.is_hunger_addon === v}
                   onClick={() => update('is_hunger_addon', v)}>
                   {v ? 'Yes' : 'No'}
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          <Field label="Data source" hint="optional; tap again to clear">
-            <div className="chip-grid" role="group" aria-label="Data source">
-              {DATA_SOURCES.map((d) => (
-                <button key={d.value} type="button" disabled={busy}
-                  className={form.data_source === d.value ? 'chip selected' : 'chip'} aria-pressed={form.data_source === d.value}
-                  onClick={() => update('data_source', form.data_source === d.value ? '' : d.value)}>
-                  {d.label}
                 </button>
               ))}
             </div>
