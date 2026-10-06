@@ -99,6 +99,12 @@ function SharePage({ supabase, token }: { supabase: SupabaseClient | null; token
         )}
         {state === 'ready' && data && (
           <>
+            {data.rank && (
+              <div className="card rank-card" aria-label="Current rank">
+                <span className="muted small">Current rank</span>
+                <strong className="rank-name">🏆 {data.rank}</strong>
+              </div>
+            )}
             <p className="muted small center">Confirmed days only, newest first.</p>
             {data.days.length === 0 && <div className="card"><p className="muted">No confirmed days yet.</p></div>}
             {data.days.map((d) => <SharedDayCard key={d.date} day={d} />)}

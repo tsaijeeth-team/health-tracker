@@ -48,8 +48,9 @@ function ExercisesCard({ supabase, exercises, sessionCounts, lockedIds, onChange
     setBusy(false)
     if (error) {
       const refused = refusal(error.message)
+      // Refused by a lock rule (e.g. the day was confirmed on another device): reload first, then the message.
+      if (refused) { await onChanged(); setEditing(null) }
       setMessage({ id: ex.id, text: error.code === '23505' ? `"${name}" is already in your list.` : refused ?? friendlyError(error.message, error.code) })
-      if (refused) { setEditing(null); await onChanged() } // e.g. the day was confirmed on another device
       return
     }
     setEditing(null)
@@ -65,8 +66,8 @@ function ExercisesCard({ supabase, exercises, sessionCounts, lockedIds, onChange
     setBusy(false)
     if (error) {
       // The database has the final word (e.g. used on another device a moment ago).
+      await onChanged() // the up-to-date usage count first, then the message
       setMessage({ id: ex.id, text: refusal(error.message) ?? friendlyError(error.message, error.code) })
-      await onChanged() // show the up-to-date usage count
       return
     }
     await onChanged()

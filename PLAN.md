@@ -34,7 +34,10 @@ The database works out "today" with its own clock, not the phone's.
 - Calories (required); protein, carbs, fat (optional: blank means unknown)
 - Fibre: total, plus optional soluble and insoluble. Blank means unknown. Never estimated.
 - Hunger add-on (y/n). Stays within the meal it followed.
-- Data source (optional): label, IFCT, USDA, research, other
+- ~~Data source (optional): label, IFCT, USDA, research, other~~ **Hidden from the app on the owner's instruction
+  (6 Oct 2026).** Not shown in the food form, food list, recent foods, share page or daily CSV; new entries leave it
+  empty and edits never touch it. The database column and all existing values are kept (confirmed days included),
+  and the .json backup still exports it. No database change.
 - Running daily kcal vs a 2,000 kcal cap. Warning only. Drink kcal is included.
 
 **Fluids** (many entries per day)
@@ -126,15 +129,61 @@ The database works out "today" with its own clock, not the phone's.
   first logged day up to yesterday that is not confirmed, including dates with nothing logged.
   Each shows "X days left" in a 7-day window; overdue days are red.
 
-## Points system (later step, not built yet)
+## Points & rank (step 14)
 
-- **Clean day** = junk meals = 0 AND porn = No AND gaming ≤ 2 h. If any of the three is blank, the day is not clean.
-- **Missed confirm (−20 points):** a day counts as missed if it is not confirmed by 23:59 India time on the
-  7th day after it. Example: 5 Oct must be confirmed by 12 Oct, 23:59 IST.
-- Gym: +10 points per day with a gym session (max one session per day). A session only earns points if it has
-  at least 1 exercise with 3 or more sets.
-- The "earlier days not confirmed" notice already follows this rule: "last day to confirm" on the 7th day after,
-  "over 7 days" from the 8th day (India time).
+Values and thresholds are a **draft**. They live in ONE place: `private.points_rules()` in
+`supabase/migrations/007_points.sql`. To change them later, edit that one function and run it again.
+
+**Only confirmed days earn or lose day points.** Points start the day after step 14 goes live (the day after
+`007_points.sql` is run); earlier days are ignored. The database calculates everything (the app and the share
+page can never disagree). The total can go below 0.
+
+| Rule | Points |
+|---|---|
+| Clean day: junk meals 0 AND porn No AND gaming ≤ 2 h (any blank = not clean) | +20 |
+| No games played (gaming = 0; blank does not count) | +5 |
+| Gym session (max 1 per day) with at least 1 exercise of 2 or more sets | +10 |
+| 7-day clean streak: on every 7th consecutive clean confirmed day (day 7, 14, 21…) | +20 |
+| Weekly weight target hit (first confirmed weigh-in at or below this week's target; once per week) | +10 |
+| Weight milestones, once ever each: first confirmed weigh-in at or below 102, 100, 99.9, 98, 96, 94 kg | +50 each |
+| Junk food: a day with 1 or more junk meals (that day is also not clean) | −50 |
+| Porn = Yes | −15 |
+| Gaming over 2 h | −10 |
+| Day not confirmed by 23:59 IST on the 7th day after it (e.g. 5 Oct → by 12 Oct 23:59) | −20 |
+
+- Late confirms (after the deadline) take the −20 but still earn the day's other points.
+- Days with nothing logged count as not confirmed (same as the "earlier days not confirmed" notice).
+- The gym rule changed from 3+ sets to **2+ sets** (owner, step 14).
+
+**Ranks** (lowest → highest; a gated rank needs the points AND the gate):
+
+| Rank | Points | Weight gate (7-day average) | Lost when |
+|---|---|---|---|
+| Sainik | 0 | none | — |
+| Shoorveer | 350 | none | points below 350 |
+| Samanth | 700 | none | points below 700 |
+| Raja | 1,500 | none | points below 1,500 |
+| Maharaj | 3,500 | ≤ 94 kg, held 28 consecutive days | points below 3,500, or average above 95 kg |
+| Chakravarti Samrat | 7,500 | ≤ 85 kg | points below 7,500, or average above 86 kg |
+| Vikramaditya | 12,000 | ≤ 85 kg, held 28 consecutive days | points below 12,000, or average above 86 kg |
+
+- Rank can go down. After losing a rank you get the highest rank you currently qualify for.
+- 7-day average = average of confirmed morning weights in the 7 days ending that day.
+- Share page shows the current rank only (no points).
+
+**Weekly target:** set on the Points & rank screen. Weeks run Monday–Sunday (India time).
+The .json backup includes the weekly targets. Points themselves are not stored (always recalculated).
+
+**Details decided while building (owner may change):**
+- A target can be set for this week or a future week, never a past week.
+- Only weigh-ins on or after the day the target was set count. Changing a target restarts that day.
+- Once a target has been hit, it is locked (cannot be changed or deleted), so the +10 can never be re-earned.
+- Milestones count only weigh-ins from the points start date on (earlier days are ignored).
+- 7-day average: uses any confirmed weights in the window (minimum 1). No weight in the last 7 days means no
+  average: it does not cost a rank, but it breaks a 28-day hold.
+- "Held 28 consecutive days" = the 7-day average was at or below the gate on each of the last 28 days.
+- Streak counts consecutive calendar days that are confirmed and clean; any other day resets it.
+- The day-by-day list on the Points & rank screen shows every rule that applied, with its points.
 
 ## Look & colours
 
@@ -188,7 +237,7 @@ The database works out "today" with its own clock, not the phone's.
   allow-list of fields for confirmed days of the link's owner (migration 004).
 - Search engines are told not to index any page: `noindex` meta tag plus an `X-Robots-Tag` header on every
   page (vercel.json). Pages also send no referrer.
-- **Later (points step):** add the owner's current rank to the share page.
+- **Step 14:** the share page shows the owner's current rank (not the points).
 
 ## Database
 
@@ -198,7 +247,8 @@ The database works out "today" with its own clock, not the phone's.
   - `supabase/migrations/003_other_descriptions.sql`
   - `supabase/migrations/004_share_function.sql`
   - `supabase/migrations/005_food_units.sql`
-  - `supabase/migrations/006_gym.sql` (comes with step 12)
+  - `supabase/migrations/006_gym.sql`
+  - `supabase/migrations/007_points.sql` (step 14)
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
 - Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 
@@ -236,7 +286,7 @@ Graphs are on a separate "Progress" screen.
 - Total volume = sum of sets × reps × weight
 - Estimated 1-rep max
 
-**Points:** +10 per day with a gym session, only if it has at least 1 exercise with 3 or more sets (points step).
+**Points:** +10 per day with a gym session, only if it has at least 1 exercise with 2 or more sets (step 14).
 
 **Decisions (owner, 5 Oct 2026):**
 1. **Estimated 1-rep max (e1RM):** Epley, weight × (1 + reps ÷ 30), using only sets with ≤ 10 reps.
@@ -248,9 +298,11 @@ Graphs are on a separate "Progress" screen.
 3. **Bodyweight exercises:** 0 kg is allowed; their graph also shows total reps per session.
 4. **Locking:** a gym session locks when its day is confirmed (same as food, drinks and cardio).
 
-## Step 13: Micronutrients (after step 12)
+## Step 13: Micronutrients (DEFERRED: not tracked for now)
 
-Optional per-food fields. Blank = unknown, never estimated.
+Decided by the owner: option A, micronutrients are not tracked for now. **Revisit in 2–4 weeks**, in this order:
+1. A **"My foods" library** built from the foods already logged: per-100 g values, sources, override allowed.
+2. Then micronutrients, as optional per-food fields. Blank = unknown, never estimated.
 
 | Unit | Nutrients |
 |---|---|
@@ -258,16 +310,15 @@ Optional per-food fields. Blank = unknown, never estimated.
 | µg | selenium, vitamin B12, folate, vitamin A, iodine |
 | µg (also shown as IU = µg × 40) | vitamin D |
 
-- Daily totals like macros: "at least X (N items unknown)".
-- Recent-food scaling scales them by grams too.
-- Daily targets: ICMR-NIN 2020, adult man. Exact numbers copied from the official table when this step is built.
+Choices already decided for that step:
+- Targets: ICMR-NIN 2020 **RDA**, adult man, **sedentary** (review after 4–6 weeks of gym).
+- **Sodium cap 2,000 mg/day** (WHO), shown green → amber → red.
+- Daily totals like macros: "at least X (N items unknown)". Recent-food scaling scales them by grams too.
 - Not on the share page unless the owner decides otherwise later.
-- Decide before building: RDA or EAR as the target (recommended: RDA); activity level (recommended: moderate);
-  sodium shown as a "stay under" cap (recommended).
 
 ## Not in version 1
 
-Food database, charts (except the gym graph in step 12), micronutrients (step 13), points/rank system, lab results, reminders, offline saving.
+Food database, charts (except the gym graph in step 12), micronutrients (step 13, deferred), lab results, reminders, offline saving.
 
 ## Build steps
 
@@ -282,9 +333,9 @@ Food database, charts (except the gym graph in step 12), micronutrients (step 13
 9. Share links + read-only page: done
 10. PWA install + data export: done
 11. Security check, go live: done
-- Food units (amount + unit; built before step 12)
-12. Gym log + progressive overload graph (live by 18 Oct 2026)
-13. Micronutrients
+- Food units (amount + unit; built before step 12): done
+12. Gym log + progressive overload graph: done
+13. Micronutrients: deferred (revisit in 2–4 weeks: "My foods" library first)
 14. Points + rank (rank also on the share page)
 
-Priority order: food units → step 12 → step 13 → points/rank.
+Priority order: points/rank now; then "My foods" library → micronutrients.

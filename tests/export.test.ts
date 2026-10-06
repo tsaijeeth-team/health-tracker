@@ -47,6 +47,7 @@ const data: BackupData = {
   day_notes: [{ day_id: 'd1', body: 'x' }],
   exercises: [{ id: 'e1', name: 'Bench press' }, { id: 'e2', name: 'Pull-up' }],
   exercise_renames: [{ exercise_id: 'e1', old_name: 'Bench', new_name: 'Bench press', renamed_at: '2026-10-04T10:00:00Z' }],
+  weight_targets: [{ week_start: '2026-10-05', target_kg: 99.5, set_on: '2026-10-05' }],
   gym_sessions: [{ id: 's1', day_id: 'd1' }],
   gym_exercises: [{ id: 'g1', session_id: 's1', exercise_id: 'e1' }, { id: 'g2', session_id: 's1', exercise_id: 'e2' }],
   gym_sets: [
@@ -95,7 +96,7 @@ test('CSV file: header + one line per day, blank cells for not answered', () => 
 
 test('backup file: all tables, no share-link secrets, private note', () => {
   const b = buildBackup(data, new Date('2026-10-05T10:00:00Z'))
-  assert.deepEqual(Object.keys(b.tables).sort(), ['cardio_sessions', 'day_notes', 'days', 'exercise_renames', 'exercises', 'fluids', 'food_items', 'gym_exercises', 'gym_sessions', 'gym_sets'])
+  assert.deepEqual(Object.keys(b.tables).sort(), ['cardio_sessions', 'day_notes', 'days', 'exercise_renames', 'exercises', 'fluids', 'food_items', 'gym_exercises', 'gym_sessions', 'gym_sets', 'weight_targets'])
   assert.equal(b.exported_at, '2026-10-05T10:00:00.000Z')
   assert.ok(!JSON.stringify(b).includes('token'))
   assert.equal(exportFileName('backup', '2026-10-05'), 'health-export-2026-10-05.json')

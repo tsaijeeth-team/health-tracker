@@ -59,4 +59,5 @@ export type SharedDay = {
   cardio: { type: string; minutes: number; start_time: string; description: string | null }[]
 }
 
-export type SharedProgress = { days: SharedDay[] }
+// rank: the owner's current rank name (step 14). Older databases do not send it.
+export type SharedProgress = { days: SharedDay[]; rank?: string | null }

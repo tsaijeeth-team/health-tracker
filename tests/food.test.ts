@@ -14,7 +14,7 @@ test('a minimal valid food: unknown nutrients stay null', () => {
   assert.deepEqual(errors, {})
   assert.equal(payload?.protein_g, null)
   assert.equal(payload?.fibre_total_g, null)
-  assert.equal(payload?.data_source, null)
+  assert.equal(payload !== null && 'data_source' in payload, false) // never sent (hidden field)
   assert.equal(payload?.is_hunger_addon, false)
 })
 
@@ -73,7 +73,7 @@ test('calorie bar colours', () => {
 
 const recent = (o: Partial<RecentFood>): RecentFood => ({
   food: 'Dal', weight_g: 60, amount: null, unit: null, grams_per_unit: null, weight_state: 'raw', kcal: 210, protein_g: 14, carbs_g: 36, fat_g: 1,
-  fibre_total_g: 6, fibre_soluble_g: 2, fibre_insoluble_g: 4, data_source: 'ifct', meal: 'lunch',
+  fibre_total_g: 6, fibre_soluble_g: 2, fibre_insoluble_g: 4, meal: 'lunch',
   created_at: '2026-10-01T08:00:00Z', ...o,
 })
 
@@ -125,7 +125,7 @@ test('quick-add form copies the last entry exactly at the same grams', () => {
   assert.equal(f.kcal, '210.5')
   assert.equal(f.weight_state, 'raw')
   assert.equal(f.is_hunger_addon, false)
-  assert.equal(f.data_source, 'ifct')
+  assert.equal('data_source' in f, false) // hidden field: not copied to new entries
 })
 
 test('fibre rule holds for many random foods and weights after scaling', () => {
