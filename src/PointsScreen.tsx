@@ -96,9 +96,9 @@ function PointsScreen({ supabase, onBack }: { supabase: SupabaseClient; onBack: 
                   {needs.length > 0 ? ` needs ${needs.join(' and ')}.` : ' (requirements met; it updates with your next confirmed day).'}
                 </p>
               ) : <p className="small">Highest rank reached.</p>}
-              {notStarted && (
-                <p className="note small">Points start on {formatDateLabel(report.start_date)}. Earlier days are not counted.</p>
-              )}
+              <p className={notStarted ? 'note small' : 'muted small'}>
+                Points start on {formatDateLabel(report.start_date)}. Earlier days are not counted.
+              </p>
             </section>
 
             <section className="card" aria-label="This week's target">

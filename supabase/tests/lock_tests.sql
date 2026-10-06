@@ -11,6 +11,7 @@
 --   psql -d t -f supabase/migrations/005_food_units.sql
 --   psql -d t -f supabase/migrations/006_gym.sql
 --   psql -d t -f supabase/migrations/007_points.sql
+--   psql -d t -f supabase/migrations/008_points_start.sql
 --   psql -d t -f supabase/tests/lock_tests.sql
 
 \set ON_ERROR_STOP 1
@@ -784,6 +785,20 @@ select test.check('every owner table has created_at (the backup export sorts by 
   (select string_agg(c.relname, ',') from pg_class c join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'public' and c.relkind = 'r'
       and not exists (select 1 from information_schema.columns col where col.table_schema = 'public' and col.table_name = c.relname and col.column_name = 'created_at')));
+
+-- ---------- 008: points start date moved to Mon, 5 Oct 2026 ----------
+-- (Run here again, after all test users exist, so it has someone to apply to.)
+select md5(string_agg(t::text, '|' order by t::text)) as days_before from public.days t \gset
+\ir ../migrations/008_points_start.sql
+select test.check('008: every person''s points start on 2026-10-05',
+  (select bool_and(start_date = date '2026-10-05') and count(*) = (select count(*) from auth.users) from public.points_settings));
+select test.check('008: no logged data changed',
+  (select md5(string_agg(t::text, '|' order by t::text)) from public.days t) = :'days_before');
+select test.check('008: the report now starts on 5 Oct 2026',
+  private.points_report('00000000-0000-0000-0000-00000000000c')->>'start_date' = '2026-10-05');
+\ir ../migrations/008_points_start.sql
+select test.check('008: running it twice is harmless',
+  (select bool_and(start_date = date '2026-10-05') and count(*) = (select count(*) from auth.users) from public.points_settings));
 
 -- ---------- Report ----------
 \o

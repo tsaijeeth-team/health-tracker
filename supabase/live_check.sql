@@ -414,7 +414,7 @@ begin
     end if;
   end;
 
-  -- ---- 52-56. Points & rank (007) ----
+  -- ---- 52-57. Points & rank (007, 008) ----
   -- 2000-01-01 alone, as if today were that day: weight 80 kg = all 6 milestones (+300); confirmed today, long
   -- after its deadline (-20); junk/porn/gaming blank = not clean; gym with 1 set = no gym points. Total 280.
   reset role;
@@ -428,6 +428,15 @@ begin
     end if;
   exception when others then
     failures := failures || ('could not calculate points (did you run 007_points.sql?): ' || sqlerrm);
+  end;
+  -- ---- 57. Points start on Mon, 5 Oct 2026 (008) ----
+  begin
+    select start_date::text into val from public.points_settings where user_id = owner_id;
+    if val = '2026-10-05' then passed := passed + 1;
+    else failures := failures || ('points should start on 2026-10-05 (did you run 008_points_start.sql?), found: ' || coalesce(val, 'no start date'));
+    end if;
+  exception when others then
+    failures := failures || ('could not read the points start date: ' || sqlerrm);
   end;
   perform set_config('request.jwt.claim.sub', owner_id::text, true);
   perform set_config('request.jwt.claims', json_build_object('sub', owner_id, 'role', 'authenticated')::text, true);
@@ -515,7 +524,7 @@ begin
 
   -- ---- Report (stops the transaction on purpose, so nothing is saved) ----
   if cardinality(failures) = 0 then
-    raise exception 'LIVE CHECK PASSED: % of 56 checks passed. Everything was undone; nothing was saved.', passed;
+    raise exception 'LIVE CHECK PASSED: % of 57 checks passed. Everything was undone; nothing was saved.', passed;
   else
     raise exception 'LIVE CHECK FAILED: % passed, % failed: %. Nothing was saved.',
       passed, cardinality(failures), array_to_string(failures, ' | ');
