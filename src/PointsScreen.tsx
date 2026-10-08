@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { formatPoints, nextRankNeeds, targetError, weekOf, type PointsReport } from './lib/points'
+import { formatPoints, nextRankNeeds, pillarLine, targetError, weekOf, type PointsReport } from './lib/points'
 import { formatDateLabel } from './lib/dates'
 import { formatNumber } from './lib/food'
 import { friendlyError } from './lib/errors'
@@ -14,14 +14,20 @@ const PAGE = 30
 function ruleLines(rules: PointsReport['rules']): string[] {
   const n = (k: string) => Number(rules[k])
   const p = (k: string) => formatPoints(n(k))
+  const num = (k: string) => n(k).toLocaleString('en-IN')
   const kg = (rules.milestones_kg as number[]).join(', ')
   return [
-    `Only confirmed days earn or lose points. A day not confirmed by 23:59 on the ${n('confirm_days')}th day after it: ${p('missed_confirm')}.`,
-    `Clean day (0 junk meals, porn No, gaming ${n('gaming_limit_h')} h or less; blanks are not clean): ${p('clean_day')}.`,
-    `No games (0 h): ${p('no_games')}. Gym session with an exercise of ${n('gym_min_sets')}+ sets: ${p('gym')}.`,
-    `Every ${n('streak_length')}th clean day in a row: ${p('streak_bonus')}. Weekly target hit: ${p('weekly_target')}.`,
-    `Weight milestones (${kg} kg): ${p('milestone')} each, once.`,
-    `Junk food: ${p('junk_day')}. Porn: ${p('porn')}. Gaming over ${n('gaming_limit_h')} h: ${p('gaming_over')}.`,
+    `Only confirmed days count. Each pillar is scored on its own; a blank field scores that pillar's worst value.`,
+    `Nutrition: under ${num('nutrition_kcal_under')} kcal (food + known drink kcal) AND over ${num('nutrition_protein_over')} g protein ${p('nutrition_hit')}, else ${p('nutrition_miss')} (no food logged too). Fast day: ${p('nutrition_fast_day')}.`,
+    `Steps: over ${num('steps_over')} ${p('steps_hit')}, else ${p('steps_miss')}.`,
+    `Junk: 0 meals ${p('junk_free')}; 1 or more ${p('junk_any')}.`,
+    `Porn: No ${p('porn_no')}; Yes ${p('porn_yes')}.`,
+    `Gaming: 0 h ${p('gaming_zero')}; up to ${n('gaming_limit_h')} h ${p('gaming_within')}; over ${n('gaming_limit_h')} h ${p('gaming_over')}.`,
+    `Sleep: ${n('sleep_good_h')} h or more ${p('sleep_good')}; ${n('sleep_ok_h')} h to under ${n('sleep_good_h')} h ${p('sleep_ok')}; under ${n('sleep_ok_h')} h ${p('sleep_short')}.`,
+    `Fluids (all drinks): ${num('fluids_good_ml')} ml or more ${p('fluids_good')}; ${num('fluids_ok_ml')} ml or more ${p('fluids_ok')}; less ${p('fluids_low')}.`,
+    `Gym: a session with an exercise of ${n('gym_min_sets')}+ sets ${p('gym')} (once a day). Naam Jaap: Yes ${p('naam_jaap_yes')}.`,
+    `Every ${n('streak_length')}th junk-free day in a row: ${p('streak_bonus')}. Weekly target hit: ${p('weekly_target')}. Weight milestones (${kg} kg): ${p('milestone')} each, once.`,
+    `A day not confirmed by 23:59 on the ${n('confirm_days')}th day after it: ${p('missed_confirm')}.`,
   ]
 }
 
@@ -147,6 +153,19 @@ function PointsScreen({ supabase, onBack }: { supabase: SupabaseClient; onBack: 
                       <strong>{formatDateLabel(d.date)}</strong>
                       <span className={d.points < 0 ? 'points-minus' : d.points > 0 ? 'points-plus' : 'muted'}>{formatPoints(d.points)}</span>
                     </div>
+                    {d.pillars.length > 0 && (
+                      <>
+                        <p className="pillar-line small">{pillarLine(d.pillars)}</p>
+                        <ul className="pillar-details small" aria-label={`Pillars on ${formatDateLabel(d.date)}`}>
+                          {d.pillars.map((p) => (
+                            <li key={p.code} className={p.blank || p.points < 0 ? 'pillar-miss' : 'muted'}>
+                              <span className="points-amount">{formatPoints(p.points)}</span>
+                              {p.name}: {p.detail}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
                     <ul className="points-items small">
                       {d.items.map((it, i) => (
                         <li key={i} className={it.points === 0 ? 'muted' : ''}>

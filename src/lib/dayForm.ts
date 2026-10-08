@@ -24,6 +24,7 @@ export type DayForm = {
   porn: TriState
   naam_jaap: TriState
   junk_meals: string
+  fast_day: 'yes' | 'no'  // a toggle: never blank (points v2, 009)
 }
 
 export type DayRow = {
@@ -46,6 +47,7 @@ export type DayRow = {
   porn: boolean | null
   naam_jaap: boolean | null
   junk_meals: number | null
+  fast_day: boolean
   confirmed_at: string | null
 }
 
@@ -70,6 +72,7 @@ export const EMPTY_FORM: DayForm = {
   porn: '',
   naam_jaap: '',
   junk_meals: '',
+  fast_day: 'no',
 }
 
 function numToText(value: number | null): string {
@@ -103,6 +106,7 @@ export function formFromRow(row: DayRow | null): DayForm {
     porn: boolToTri(row.porn),
     naam_jaap: boolToTri(row.naam_jaap),
     junk_meals: numToText(row.junk_meals),
+    fast_day: row.fast_day ? 'yes' : 'no',
   }
 }
 
@@ -193,6 +197,7 @@ export function validateDayForm(form: DayForm): { errors: FieldErrors; payload: 
       porn: triToBool(form.porn),
       naam_jaap: triToBool(form.naam_jaap),
       junk_meals,
+      fast_day: form.fast_day === 'yes',
     },
   }
 }

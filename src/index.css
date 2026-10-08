@@ -1422,3 +1422,39 @@ a.button-link.secondary {
 .progress-table.rank-table td {
   white-space: normal;
 }
+
+/* ---------- Points v2: pillars ---------- */
+
+.pillar-line {
+  margin: 4px 0 0;
+  font-weight: 600;
+}
+
+.pillar-details,
+.confirm-pillars {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* A miss or a blank: readable red text plus the minus sign / the word "blank". */
+.pillar-miss {
+  color: var(--error-fg);
+}
+
+.confirm-blanks {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--error-fg);
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
+}
+
+.confirm-blanks ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}

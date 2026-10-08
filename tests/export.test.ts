@@ -32,7 +32,7 @@ test('CSV cells: blanks empty, yes/no, quoting, formula protection', () => {
 const data: BackupData = {
   days: [
     { id: 'd2', log_date: '2026-10-05', confirmed_at: null, weight_kg: null, bedtime: null, wake_time: null, sleep_minutes: null, sleep_quality: null, snoring: null, gasping: null, afternoon_sleepiness: null, nap_minutes: null, steps: null, stress: null, energy: null, resting_pulse: null, gaming_hours: null, porn: null, naam_jaap: null, junk_meals: null },
-    { id: 'd1', log_date: '2026-10-04', confirmed_at: '2026-10-04T17:00:00Z', weight_kg: 82.4, bedtime: '23:30:00', wake_time: '07:00:00', sleep_minutes: 450, sleep_quality: 4, snoring: false, gasping: false, afternoon_sleepiness: true, nap_minutes: 0, steps: 9000, stress: 3, energy: 7, resting_pulse: 62, gaming_hours: 1.5, porn: false, naam_jaap: true, junk_meals: 0 },
+    { id: 'd1', log_date: '2026-10-04', confirmed_at: '2026-10-04T17:00:00Z', weight_kg: 82.4, bedtime: '23:30:00', wake_time: '07:00:00', sleep_minutes: 450, sleep_quality: 4, snoring: false, gasping: false, afternoon_sleepiness: true, nap_minutes: 0, steps: 9000, stress: 3, energy: 7, resting_pulse: 62, gaming_hours: 1.5, porn: false, naam_jaap: true, junk_meals: 0, fast_day: true },
   ],
   food_items: [
     { day_id: 'd1', kcal: 210, protein_g: 14, carbs_g: 36, fat_g: 1, fibre_total_g: 6, is_hunger_addon: false },
@@ -75,6 +75,7 @@ test('daily summary: oldest first, honest totals, blanks stay blank', () => {
   assert.equal(d.sugary_ml, 300)
   assert.equal(d.cardio_minutes, 45)
   assert.equal(d.notes, 1)
+  assert.equal(d.fast_day, true)
   assert.equal(d.gym_exercises, 2)
   assert.equal(d.gym_sets, 3)
   assert.equal(d.gym_volume_kg, 575) // 8×40 + 6×42.5 + 10×0

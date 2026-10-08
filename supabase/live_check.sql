@@ -1,5 +1,5 @@
 -- =====================================================================
--- Health Tracker: LIVE CHECK of the real database (build steps 4, 11, 12, 14 and food units)
+-- Health Tracker: LIVE CHECK of the real database (build steps 4, 11, 12, 14, points v2 and food units)
 --
 -- Run in Supabase: SQL Editor -> New query -> paste ALL -> Run.
 -- Do not highlight part of it: the editor would run only the highlighted part.
@@ -414,17 +414,19 @@ begin
     end if;
   end;
 
-  -- ---- 52-57. Points & rank (007, 008) ----
-  -- 2000-01-01 alone, as if today were that day: weight 80 kg = all 6 milestones (+300); confirmed today, long
-  -- after its deadline (-20); junk/porn/gaming blank = not clean; gym with 1 set = no gym points. Total 280.
+  -- ---- 52-59. Points & rank (007, 008, 009 = rules v2) ----
+  -- 2000-01-01 alone, as if today were that day. Pillars: nutrition -20 (100 kcal, 0 g protein), steps -10 (blank),
+  -- junk -50 (blank), porn -15 (blank), gaming -10 (blank), sleep +10 (7 h 30), fluids -5 (500 ml), gym 0 (1 set),
+  -- Naam Jaap 0 (blank) = -100. Plus 6 milestones at 80 kg (+300) and the late confirm (-20). Total 180.
   reset role;
   begin
     select private.points_report(owner_id, '2000-01-01 12:00 Asia/Kolkata'::timestamptz, '2000-01-01') into val;
-    if (val::jsonb->>'total')::int = 280 and val::jsonb->>'rank' = 'Sainik'
+    if (val::jsonb->>'total')::int = 180 and val::jsonb->>'rank' = 'Sainik'
        and (select count(*) from jsonb_array_elements(val::jsonb->'days'->0->'items') i where i->>'code' = 'milestone') = 6
-       and val::jsonb->'days'->0->'items' @> '[{"code":"missed_confirm"},{"code":"not_clean"},{"code":"gym_too_short"}]' then
+       and val::jsonb->'days'->0->'items' @> '[{"code":"missed_confirm"}]'
+       and (select string_agg(p->>'points', ',') from jsonb_array_elements(val::jsonb->'days'->0->'pillars') p) = '-20,-10,-50,-15,-10,10,-5,0,0' then
       passed := passed + 1;
-    else failures := failures || ('points for 2000-01-01 should total 280, got: ' || coalesce(val::jsonb->>'total', 'nothing'));
+    else failures := failures || ('points v2 for 2000-01-01 should total 180 (did you run 009_points_v2.sql?), got: ' || coalesce(val::jsonb->>'total', 'nothing'));
     end if;
   exception when others then
     failures := failures || ('could not calculate points (did you run 007_points.sql?): ' || sqlerrm);
@@ -448,6 +450,24 @@ begin
     end if;
   exception when others then
     failures := failures || ('could not load your points report: ' || sqlerrm);
+  end;
+  begin
+    update public.days set fast_day = true where id = test_day;
+    failures := failures || 'locked: setting "fast day" on a confirmed day was NOT blocked'::text;
+  exception when others then
+    if sqlerrm ilike '%locked%' then passed := passed + 1;
+    else failures := failures || ('fast day on a locked day blocked for the wrong reason (did you run 009?): ' || sqlerrm);
+    end if;
+  end;
+  begin
+    select public.preview_day_points(date '2000-01-01')::text into val;
+    if jsonb_array_length(val::jsonb->'pillars') = 9 and (val::jsonb->>'points')::int = -100
+       and (val::jsonb->>'late')::boolean and (val::jsonb->>'late_points')::int = -20 then
+      passed := passed + 1;
+    else failures := failures || ('confirm preview for 2000-01-01 is wrong: ' || coalesce(val, 'nothing'));
+    end if;
+  exception when others then
+    failures := failures || ('could not load the confirm preview (did you run 009?): ' || sqlerrm);
   end;
   begin
     insert into public.weight_targets (week_start, target_kg) values (date_trunc('week', date '2099-12-31')::date, 90);
@@ -524,7 +544,7 @@ begin
 
   -- ---- Report (stops the transaction on purpose, so nothing is saved) ----
   if cardinality(failures) = 0 then
-    raise exception 'LIVE CHECK PASSED: % of 57 checks passed. Everything was undone; nothing was saved.', passed;
+    raise exception 'LIVE CHECK PASSED: % of 59 checks passed. Everything was undone; nothing was saved.', passed;
   else
     raise exception 'LIVE CHECK FAILED: % passed, % failed: %. Nothing was saved.',
       passed, cardinality(failures), array_to_string(failures, ' | ');

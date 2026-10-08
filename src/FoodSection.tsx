@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   EMPTY_FOOD_FORM, FOOD_UNITS, KCAL_CAP, MEALS, NUTRIENT_KEYS,
@@ -17,11 +17,12 @@ type Props = {
   ensureDay: () => Promise<string>
   onDirtyChange: (dirty: boolean) => void
   drinkKcal: { known: number; unknownCount: number }
+  fastDay?: ReactNode  // the day's "Fast day" toggle (a day field, saved with the day)
 }
 
 type Mode = { kind: 'closed' } | { kind: 'add' } | { kind: 'edit'; item: FoodRow }
 
-function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange, drinkKcal }: Props) {
+function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange, drinkKcal, fastDay }: Props) {
   const [items, setItems] = useState<FoodRow[]>([])
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(Boolean(dayId))
@@ -255,6 +256,7 @@ function FoodSection({ supabase, dayId, locked, ensureDay, onDirtyChange, drinkK
   return (
     <section className="card">
       <h2>Food</h2>
+      {fastDay}
 
       <div className="kcal">
         <div className="kcal-numbers">

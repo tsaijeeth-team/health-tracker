@@ -44,8 +44,14 @@ test('blank fields are saved as "not answered" (null), never 0 or No', () => {
   assert.deepEqual(errors, {})
   assert.ok(payload)
   for (const [key, value] of Object.entries(payload)) {
+    if (key === 'fast_day') continue // a Yes/No toggle, never blank (checked below)
     assert.equal(value, null, `${key} should be null when blank`)
   }
+})
+
+test('fast day: a toggle that defaults to No and is saved as true/false', () => {
+  assert.equal(validateDayForm(EMPTY_FORM).payload?.fast_day, false)
+  assert.equal(validateDayForm({ ...EMPTY_FORM, fast_day: 'yes' }).payload?.fast_day, true)
 })
 
 test('junk meals: blank = null, 0 = 0', () => {
