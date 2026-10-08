@@ -3,9 +3,13 @@
 // formats what it returns, plus the weekly-target input check.
 
 export type PointsItem = { code: string; label: string; points: number }
+// One of the 9 pillars (rules v2): scored on every confirmed day. blank = the field was not answered.
+export type Pillar = { code: string; name: string; points: number; detail: string; blank: boolean }
+export type DayPreview = { points: number; blanks: number; pillars: Pillar[]; late: boolean; late_points: number }
 export type PointsDay = {
   date: string
   confirmed: boolean
+  pillars: Pillar[]
   items: PointsItem[]
   points: number
   total: number
@@ -71,4 +75,20 @@ export function nextRankNeeds(next: NextRank): string[] {
     needs.push(`7-day average weight ${next.gate_kg} kg or less${hold}`)
   }
   return needs
+}
+
+// "Nutrition +20 · Steps −10 · Junk +10 · …" (Gym/Naam Jaap/Gaming show 0 too, so every pillar is visible).
+export function pillarLine(pillars: Pillar[]): string {
+  return pillars.map((p) => `${p.name} ${formatPoints(p.points)}`).join(' · ')
+}
+
+// Why a pillar did not earn its best: every blank and every pillar with fewer than 0 points.
+// (A 0 that is the best possible, e.g. gym with no session, is not a miss.)
+export function pillarMisses(pillars: Pillar[]): Pillar[] {
+  return pillars.filter((p) => p.blank || p.points < 0)
+}
+
+// "Junk: blank → −50" for the Confirm dialog.
+export function blankCost(p: Pillar): string {
+  return `${p.name}: blank → ${formatPoints(p.points)}`
 }

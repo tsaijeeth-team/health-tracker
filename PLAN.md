@@ -131,8 +131,12 @@ The database works out "today" with its own clock, not the phone's.
 
 ## Points & rank (step 14)
 
-Values and thresholds are a **draft**. They live in ONE place: `private.points_rules()` in
-`supabase/migrations/007_points.sql`. To change them later, edit that one function and run it again.
+Values and thresholds are a **draft**. They live in ONE place: `private.points_rules()`, now in
+`supabase/migrations/009_points_v2.sql` (it replaced the 007 version). To change them, edit that one function and run it again.
+
+**Rules v2 (owner, 8 Oct 2026; `009_points_v2.sql`)** replace the "clean day" bundle. They apply retrospectively from the
+points start date: points are never stored, so everything is recalculated from the saved logs. No logged or locked
+data is changed.
 
 **Only confirmed days earn or lose day points.** Points start on **Mon, 5 Oct 2026**; earlier days are ignored.
 - Originally the day after `007_points.sql` was run (7 Oct 2026). **Changed to Mon, 5 Oct 2026 (retrospective) on the
@@ -142,34 +146,63 @@ Values and thresholds are a **draft**. They live in ONE place: `private.points_r
   shows "Points start on …". The database calculates everything (the app and the share
 page can never disagree). The total can go below 0.
 
+**Pillars:** each scored independently on every confirmed day. A blank field = that pillar's worst value
+(that pillar only). Naam Jaap blank = 0.
+
+| # | Pillar | Points |
+|---|---|---|
+| 1 | Nutrition: total kcal (food + known drink kcal) **under** 2,000 AND protein (known total) **over** 100 g | +20, else −20 |
+|   | – drinks with unknown kcal: known kcal only (like protein); the breakdown shows "N drinks with unknown kcal" | |
+|   | – no food logged (not a fast day) | −20 |
+|   | – day marked **Fast day** | 0 |
+| 2 | Steps **over** 5,000 | +10, else −10 (blank −10) |
+| 3 | Junk: 0 junk meals | +10; 1 or more −50 (blank −50) |
+| 4 | Porn: No | +5; Yes −15 (blank −15) |
+| 5 | Gaming: 0 h +5; over 0 and up to 2 h 0; over 2 h −10 (blank −10). Affects only this pillar. | |
+| 6 | Sleep (calculated from bedtime/wake; naps not counted): 7 h or more +10; 6 h to under 7 h 0; under 6 h −10 (blank −10) | |
+| 7 | Fluids (all drinks): 4,000 ml or more +5; 3,000 to under 4,000 ml 0; under 3,000 ml −5 | |
+| 8 | Gym: a session (max 1 per day) with at least 1 exercise of 2+ sets | +10; else 0 |
+| 9 | Naam Jaap: Yes | +5; No or blank 0 |
+
+Exact lines: exactly 2,000 kcal, exactly 100 g protein and exactly 5,000 steps are misses; exactly 7 h 00 sleep = +10,
+exactly 6 h 00 = 0; exactly 4,000 ml = +5, exactly 3,000 ml = 0; exactly 2 h gaming = 0.
+
+**Bonuses and penalties:**
+
 | Rule | Points |
 |---|---|
-| Clean day: junk meals 0 AND porn No AND gaming ≤ 2 h (any blank = not clean) | +20 |
-| No games played (gaming = 0; blank does not count) | +5 |
-| Gym session (max 1 per day) with at least 1 exercise of 2 or more sets | +10 |
-| 7-day clean streak: on every 7th consecutive clean confirmed day (day 7, 14, 21…) | +20 |
+| Streak: every 7th consecutive **junk-free** confirmed day (day 7, 14, 21…; a blank or unconfirmed day breaks it) | +20 |
 | Weekly weight target hit (first confirmed weigh-in at or below this week's target; once per week) | +10 |
 | Weight milestones, once ever each: first confirmed weigh-in at or below 102, 100, 99.9, 98, 96, 94 kg | +50 each |
-| Junk food: a day with 1 or more junk meals (that day is also not clean) | −50 |
-| Porn = Yes | −15 |
-| Gaming over 2 h | −10 |
 | Day not confirmed by 23:59 IST on the 7th day after it (e.g. 5 Oct → by 12 Oct 23:59) | −20 |
+
+**Removed in v2:** "clean day" +20, separate "no games" +5, the old junk −50 / porn −15 / gaming −10 penalties (now
+pillars 3–5), and the old clean-day streak.
+
+**Fast day:** a Yes/No toggle (default No) at the top of the Food card. Part of the day: saved with the day and locked
+on confirm. Days that existed before 009 are "No".
+
+**App:** the Points & rank screen shows each day's pillar line (e.g. "Nutrition +20 · Steps −10 · Junk +10 …") and
+the reason for every pillar. The Confirm dialog shows "Points if confirmed now" with every blank pillar in red with its
+cost (e.g. "Junk: blank → −50"), so it can be filled before locking. The daily CSV has a fast_day column.
 
 - Late confirms (after the deadline) take the −20 but still earn the day's other points.
 - Days with nothing logged count as not confirmed (same as the "earlier days not confirmed" notice).
 - The gym rule changed from 3+ sets to **2+ sets** (owner, step 14).
+- **v1 (live 6–8 Oct 2026, 007):** clean day +20, no games +5, junk −50, porn −15, gaming over 2 h −10, clean-day
+  streak; ranks 0 / 350 / 700 / 1,500 / 3,500 / 7,500 / 12,000. Replaced by v2 (rank thresholds ×1.5).
 
-**Ranks** (lowest → highest; a gated rank needs the points AND the gate):
+**Ranks v2** (thresholds ×1.5; weight gates unchanged; lowest → highest; a gated rank needs the points AND the gate):
 
 | Rank | Points | Weight gate (7-day average) | Lost when |
 |---|---|---|---|
 | Sainik | 0 | none | — |
-| Shoorveer | 350 | none | points below 350 |
-| Samanth | 700 | none | points below 700 |
-| Raja | 1,500 | none | points below 1,500 |
-| Maharaj | 3,500 | ≤ 94 kg, held 28 consecutive days | points below 3,500, or average above 95 kg |
-| Chakravarti Samrat | 7,500 | ≤ 85 kg | points below 7,500, or average above 86 kg |
-| Vikramaditya | 12,000 | ≤ 85 kg, held 28 consecutive days | points below 12,000, or average above 86 kg |
+| Shoorveer | 525 | none | points below 525 |
+| Samanth | 1,050 | none | points below 1,050 |
+| Raja | 2,250 | none | points below 2,250 |
+| Maharaj | 5,250 | ≤ 94 kg, held 28 consecutive days | points below 5,250, or average above 95 kg |
+| Chakravarti Samrat | 11,250 | ≤ 85 kg | points below 11,250, or average above 86 kg |
+| Vikramaditya | 18,000 | ≤ 85 kg, held 28 consecutive days | points below 18,000, or average above 86 kg |
 
 - Rank can go down. After losing a rank you get the highest rank you currently qualify for.
 - 7-day average = average of confirmed morning weights in the 7 days ending that day.
@@ -186,7 +219,7 @@ The .json backup includes the weekly targets. Points themselves are not stored (
 - 7-day average: uses any confirmed weights in the window (minimum 1). No weight in the last 7 days means no
   average: it does not cost a rank, but it breaks a 28-day hold.
 - "Held 28 consecutive days" = the 7-day average was at or below the gate on each of the last 28 days.
-- Streak counts consecutive calendar days that are confirmed and clean; any other day resets it.
+- Streak (v2) counts consecutive calendar days that are confirmed and junk-free (junk meals 0); a blank, junk or unconfirmed day resets it.
 - The day-by-day list on the Points & rank screen shows every rule that applied, with its points.
 
 ## Look & colours
@@ -254,6 +287,7 @@ The .json backup includes the weekly targets. Points themselves are not stored (
   - `supabase/migrations/006_gym.sql`
   - `supabase/migrations/007_points.sql` (step 14)
   - `supabase/migrations/008_points_start.sql` (points start date → Mon, 5 Oct 2026)
+  - `supabase/migrations/009_points_v2.sql` (points rules v2: pillars, fast day, ranks ×1.5)
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
 - Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 

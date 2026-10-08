@@ -540,41 +540,146 @@ insert into auth.users (id) values
 select (now() at time zone 'Asia/Kolkata')::date as t \gset
 \set T '''' :t ''''
 
--- C: a realistic 10 days. Confirmed now, so T-9 is late (-20) and T-8 (nothing logged) is missed (-20).
-insert into public.days (user_id, log_date, junk_meals, porn, gaming_hours, weight_kg)
-select :C, :T::date - k, 0, false,
-       case when k = 7 then 1.5 else 0 end,
-       case k when 9 then 103 when 7 then 101.5 when 5 then 99.9 when 1 then 99.2 when 0 then 99.0 end
-from generate_series(0, 9) k where k <> 8;
--- Weekly target for this week, set today as C: only weigh-ins from today on count.
+-- Points rules v2 (009): 9 pillars per confirmed day. A "good" day: food 1,999 kcal / 100.5 g protein,
+-- 4,000 ml water, 5,001 steps, junk 0, porn No, gaming 0, sleep 23:00-06:00 (7 h), Naam Jaap Yes = 70 points.
+create function test.add_day(p_user uuid, p_date date, p_good boolean default true) returns uuid language plpgsql as $f$
+declare v uuid;
+begin
+  insert into public.days (user_id, log_date, steps, junk_meals, porn, gaming_hours, bedtime, wake_time, naam_jaap)
+    values (p_user, p_date,
+      case when p_good then 5001 end, case when p_good then 0 end, case when p_good then false end,
+      case when p_good then 0 end, case when p_good then '23:00'::time end, case when p_good then '06:00'::time end,
+      case when p_good then true end)
+    returning id into v;
+  return v;
+end $f$;
+create function test.add_food(p_day uuid, p_kcal numeric, p_protein numeric) returns void language sql as $f$
+  insert into public.food_items (day_id, user_id, meal, food, weight_g, weight_state, kcal, protein_g)
+  select p_day, d.user_id, 'lunch', 'Test food', 100, 'cooked', p_kcal, p_protein from public.days d where d.id = p_day $f$;
+create function test.add_drink(p_day uuid, p_type text, p_ml int, p_kcal numeric default null) returns void language sql as $f$
+  insert into public.fluids (day_id, user_id, drink_time, drink_type, ml, kcal)
+  select p_day, d.user_id, '09:00', p_type, p_ml, p_kcal from public.days d where d.id = p_day $f$;
+
+-- C: 10 days of pillar boundaries. Confirmed now, so T-9 is late (-20) and T-8 (nothing logged) is missed (-20).
+-- Expected day points (hand-worked): T-9 50, T-8 -20, T-7 45, T-6 -40, T-5 150, T-4 70, T-3 30, T-2 -70, T-1 70, T 80 = 365.
+select test.add_day(:C, :T::date - 9) as c9 \gset
+select test.add_day(:C, :T::date - 7) as c7 \gset
+select test.add_day(:C, :T::date - 6) as c6 \gset
+select test.add_day(:C, :T::date - 5) as c5 \gset
+select test.add_day(:C, :T::date - 4) as c4 \gset
+select test.add_day(:C, :T::date - 3) as c3 \gset
+select test.add_day(:C, :T::date - 2, false) as c2 \gset
+select test.add_day(:C, :T::date - 1) as c1 \gset
+select test.add_day(:C, :T::date) as c0 \gset
+-- T-9: good day, 103 kg.
+select test.add_food(:'c9', 1999, 100.5); select test.add_drink(:'c9', 'water', 4000);
+update public.days set weight_kg = 103 where id = :'c9';
+-- T-7: every "exactly at the line" case: 2,000 kcal (miss), 5,000 steps (miss), gaming 1.5 h (0), sleep 6 h 00 (0),
+-- 3,000 ml (0), Naam Jaap No (0), gym 2 sets (+10), 101.5 kg (milestone 102).  -5 + 50 = 45.
+select test.add_food(:'c7', 2000, 120); select test.add_drink(:'c7', 'water', 3000);
+update public.days set steps = 5000, gaming_hours = 1.5, bedtime = '23:01', wake_time = '05:01', naam_jaap = false, weight_kg = 101.5 where id = :'c7';
+-- T-6: protein exactly 100 g (miss), gaming 2.5 h (-10), sleep 5 h 59 (-10), 2,999 ml (-5), porn Yes (-15),
+-- Naam Jaap blank (0), gym with 1 set only (0), 8,000 steps (+10).  = -40.
+select test.add_food(:'c6', 1500, 100); select test.add_drink(:'c6', 'water', 2999);
+update public.days set steps = 8000, gaming_hours = 2.5, bedtime = '23:01', wake_time = '05:00', porn = true, naam_jaap = null where id = :'c6';
+-- T-5: fast day, no food (nutrition 0), otherwise good; 99.9 kg (milestones 100 and 99.9).  50 + 100 = 150.
+select test.add_drink(:'c5', 'water', 4000);
+update public.days set fast_day = true, weight_kg = 99.9 where id = :'c5';
+-- T-4: unknown drink kcal: food 1,500 + sugary 400 = 1,900 known (maad water kcal blank, not counted) -> hit. = 70.
+select test.add_food(:'c4', 1500, 101); select test.add_drink(:'c4', 'water', 3200);
+select test.add_drink(:'c4', 'maad_water', 500); select test.add_drink(:'c4', 'sugary_drink', 300, 400);
+-- T-3: no food logged, not a fast day (nutrition -20), otherwise good. = 30.
+select test.add_drink(:'c3', 'water', 4000);
+-- T-2: all blanks (steps -10, junk -50, porn -15, gaming -10, sleep -10, Naam Jaap 0), food good (+20), 4,000 ml (+5). = -70.
+select test.add_food(:'c2', 1999, 100.5); select test.add_drink(:'c2', 'water', 4000);
+-- T-1 and T: good days; weights 99.2 and 99.0. Today's target 99.5 is hit only by today (set today).
+select test.add_food(:'c1', 1999, 100.5); select test.add_drink(:'c1', 'water', 4000);
+select test.add_food(:'c0', 1999, 100.5); select test.add_drink(:'c0', 'water', 4000);
+update public.days set weight_kg = 99.2 where id = :'c1';
+update public.days set weight_kg = 99.0 where id = :'c0';
+insert into public.exercises (user_id, name) values (:C, 'Bench press');
+insert into public.gym_sessions (user_id, day_id, start_time, muscle_groups) values (:C, :'c7', '18:00', array['chest']), (:C, :'c6', '18:00', array['chest']);
+insert into public.gym_exercises (user_id, session_id, exercise_id, position)
+  select :C, s.id, e.id, 1 from public.gym_sessions s, public.exercises e where s.user_id = :C and e.user_id = :C;
+insert into public.gym_sets (user_id, entry_id, set_number, reps, weight_kg)
+  select :C, g.id, n, 8, 40 from public.gym_exercises g join public.gym_sessions s on s.id = g.session_id, generate_series(1, 2) n
+  where g.user_id = :C and (s.day_id = :'c7' or n = 1);
 select test.run('weekly target: owner sets this week''s target', 'authenticated', :C,
   format($q$insert into public.weight_targets (week_start, target_kg) values (%L, 99.5)$q$, date_trunc('week', :T::date)::date), null, 1);
+-- Fast day is part of the day: the owner can set it while the day is open.
+select test.run('fast day: owner can set it on an open day', 'authenticated', :C,
+  format($q$update public.days set fast_day = true where id = %L$q$, :'c5'), null, 1);
 update public.days set confirmed_at = now() where user_id = :C;
 select private.points_report(:C, now(), :T::date - 9) as c_report \gset
 \set CR '''' :c_report ''''
-select test.check('C: total 360 = 5 - 20 + 70 + 25 + 125 + 25 + 25 + 25 + 45 + 35',
-  (:CR::jsonb->>'total')::int = 360, :CR::jsonb->>'total');
-select test.check('C: rank Shoorveer (350 or more)', :CR::jsonb->>'rank' = 'Shoorveer', :CR::jsonb->>'rank');
-select test.check('C: late confirm takes -20 but the day still earns (T-9: -20 +20 +5 = 5)',
-  (select (e->>'points')::int = 5 and e->'items' @> '[{"code":"missed_confirm"},{"code":"clean_day"},{"code":"no_games"}]'
-   from jsonb_array_elements(:CR::jsonb->'days') e where e->>'date' = (:T::date - 9)::text));
-select test.check('C: a day with nothing logged is missed (-20)',
-  (select (e->>'points')::int = -20 and jsonb_array_length(e->'items') = 1
-   from jsonb_array_elements(:CR::jsonb->'days') e where e->>'date' = (:T::date - 8)::text));
-select test.check('C: gaming 1.5 h is clean but earns no "no games" +5; milestone 102 kg (+50)',
-  (select (e->>'points')::int = 70 and not e->'items' @> '[{"code":"no_games"}]' and e->'items' @> '[{"code":"milestone"}]'
-   from jsonb_array_elements(:CR::jsonb->'days') e where e->>'date' = (:T::date - 7)::text));
-select test.check('C: 99.9 kg earns both the 100 and 99.9 milestones, once each',
+create function test.day_of(report jsonb, d date) returns jsonb language sql as $f$
+  select e from jsonb_array_elements(report->'days') e where e->>'date' = d::text $f$;
+create function test.pillar(report jsonb, d date, code text) returns jsonb language sql as $f$
+  select p from jsonb_array_elements(test.day_of(report, d)->'pillars') p where p->>'code' = code $f$;
+select test.check('C: total 365 = 50 - 20 + 45 - 40 + 150 + 70 + 30 - 70 + 70 + 80',
+  (:CR::jsonb->>'total')::int = 365, :CR::jsonb->>'total');
+select test.check('C: each day''s points as hand-worked',
+  (select string_agg(e->>'points', ',' order by e->>'date') from jsonb_array_elements(:CR::jsonb->'days') e) = '50,-20,45,-40,150,70,30,-70,70,80',
+  (select string_agg(e->>'points', ',' order by e->>'date') from jsonb_array_elements(:CR::jsonb->'days') e));
+select test.check('C: rank Sainik; Shoorveer needs 160 more (525)',
+  :CR::jsonb->>'rank' = 'Sainik' and :CR::jsonb->'next_rank'->>'name' = 'Shoorveer' and (:CR::jsonb->'next_rank'->>'points_needed')::int = 160);
+select test.check('C: a good day = 9 pillars in order, +70',
+  (select string_agg(p->>'name' || ' ' || (p->>'points'), ', ') from jsonb_array_elements(test.day_of(:CR::jsonb, :T::date - 1)->'pillars') p)
+  = 'Nutrition 20, Steps 10, Junk 10, Porn 5, Gaming 5, Sleep 10, Fluids 5, Gym 0, Naam Jaap 5');
+select test.check('C: late confirm takes -20 and the day still earns its pillars (70 - 20)',
+  test.day_of(:CR::jsonb, :T::date - 9)->'items' @> '[{"code":"missed_confirm"}]' and (test.day_of(:CR::jsonb, :T::date - 9)->>'points')::int = 50);
+select test.check('C: nothing logged = -20 only (no pillars for an unconfirmed day)',
+  jsonb_array_length(test.day_of(:CR::jsonb, :T::date - 8)->'pillars') = 0 and (test.day_of(:CR::jsonb, :T::date - 8)->>'points')::int = -20);
+select test.check('C: exactly 2,000 kcal = nutrition miss (needs UNDER 2,000)', (test.pillar(:CR::jsonb, :T::date - 7, 'nutrition')->>'points')::int = -20,
+  test.pillar(:CR::jsonb, :T::date - 7, 'nutrition')::text);
+select test.check('C: exactly 5,000 steps = miss (needs OVER 5,000)', (test.pillar(:CR::jsonb, :T::date - 7, 'steps')->>'points')::int = -10);
+select test.check('C: gaming 1.5 h = 0; 2.5 h = -10; 0 h = +5',
+  (test.pillar(:CR::jsonb, :T::date - 7, 'gaming')->>'points')::int = 0 and (test.pillar(:CR::jsonb, :T::date - 6, 'gaming')->>'points')::int = -10
+  and (test.pillar(:CR::jsonb, :T::date - 1, 'gaming')->>'points')::int = 5);
+select test.check('C: sleep exactly 6 h 00 = 0; 5 h 59 = -10; 7 h 00 = +10',
+  (test.pillar(:CR::jsonb, :T::date - 7, 'sleep')->>'points')::int = 0 and (test.pillar(:CR::jsonb, :T::date - 6, 'sleep')->>'points')::int = -10
+  and (test.pillar(:CR::jsonb, :T::date - 1, 'sleep')->>'points')::int = 10 and test.pillar(:CR::jsonb, :T::date - 6, 'sleep')->>'detail' = '5 h 59 min');
+select test.check('C: fluids exactly 3,000 ml = 0; 2,999 = -5; 4,000 = +5',
+  (test.pillar(:CR::jsonb, :T::date - 7, 'fluids')->>'points')::int = 0 and (test.pillar(:CR::jsonb, :T::date - 6, 'fluids')->>'points')::int = -5
+  and (test.pillar(:CR::jsonb, :T::date - 1, 'fluids')->>'points')::int = 5);
+select test.check('C: gym with an exercise of 2 sets = +10; only 1 set = 0 (explained)',
+  (test.pillar(:CR::jsonb, :T::date - 7, 'gym')->>'points')::int = 10 and (test.pillar(:CR::jsonb, :T::date - 6, 'gym')->>'points')::int = 0
+  and test.pillar(:CR::jsonb, :T::date - 6, 'gym')->>'detail' = 'no exercise with 2+ sets');
+select test.check('C: exactly 100 g protein = nutrition miss (needs OVER 100)', (test.pillar(:CR::jsonb, :T::date - 6, 'nutrition')->>'points')::int = -20);
+select test.check('C: porn Yes = -15; Naam Jaap No = 0, blank = 0 (flagged blank)',
+  (test.pillar(:CR::jsonb, :T::date - 6, 'porn')->>'points')::int = -15 and (test.pillar(:CR::jsonb, :T::date - 7, 'naam_jaap')->>'points')::int = 0
+  and (test.pillar(:CR::jsonb, :T::date - 6, 'naam_jaap')->>'blank')::boolean);
+select test.check('C: fast day = nutrition 0 even with no food',
+  (test.pillar(:CR::jsonb, :T::date - 5, 'nutrition')->>'points')::int = 0 and test.pillar(:CR::jsonb, :T::date - 5, 'nutrition')->>'detail' = 'Fast day');
+select test.check('C: unknown drink kcal: known kcal only (1,500 + 400 = 1,900 -> hit), "1 drink with unknown kcal" shown',
+  (test.pillar(:CR::jsonb, :T::date - 4, 'nutrition')->>'points')::int = 20
+  and test.pillar(:CR::jsonb, :T::date - 4, 'nutrition')->>'detail' = '1,900 kcal (needs under 2,000) · 101 g protein (needs over 100) · 1 drink with unknown kcal',
+  test.pillar(:CR::jsonb, :T::date - 4, 'nutrition')->>'detail');
+select test.check('C: fluids count all drinks (3,200 water + 500 maad + 300 sugary = 4,000 -> +5)',
+  (test.pillar(:CR::jsonb, :T::date - 4, 'fluids')->>'points')::int = 5);
+select test.check('C: no food logged (not a fast day) = nutrition -20', test.pillar(:CR::jsonb, :T::date - 3, 'nutrition')->>'detail' = 'no food logged'
+  and (test.pillar(:CR::jsonb, :T::date - 3, 'nutrition')->>'points')::int = -20);
+select test.check('C: blanks score each pillar''s worst value: steps -10, junk -50, porn -15, gaming -10, sleep -10, Naam Jaap 0',
+  (select string_agg(p->>'code' || ' ' || (p->>'points'), ', ') from jsonb_array_elements(test.day_of(:CR::jsonb, :T::date - 2)->'pillars') p where (p->>'blank')::boolean)
+  = 'steps -10, junk -50, porn -15, gaming -10, sleep -10, naam_jaap 0');
+select test.check('C: a blank costs only its own pillar (nutrition +20 and fluids +5 still count that day)',
+  (test.pillar(:CR::jsonb, :T::date - 2, 'nutrition')->>'points')::int = 20 and (test.pillar(:CR::jsonb, :T::date - 2, 'fluids')->>'points')::int = 5);
+select test.check('C: milestones 102, 100 and 99.9 earned once each',
   (select count(*) from jsonb_array_elements(:CR::jsonb->'days') e, jsonb_array_elements(e->'items') i where i->>'code' = 'milestone') = 3);
-select test.check('C: 7-day clean streak bonus on the 7th day after the gap (T-1), not before',
-  (select string_agg(e->>'date', ',') from jsonb_array_elements(:CR::jsonb->'days') e where e->'items' @> '[{"code":"streak"}]')
-  = (:T::date - 1)::text);
+select test.check('C: no streak bonus (junk-free runs of 1, 5 and 2 days: the gap and the blank break it)',
+  not exists (select 1 from jsonb_array_elements(:CR::jsonb->'days') e where e->'items' @> '[{"code":"streak"}]'));
 select test.check('C: weekly target hit only by today''s weigh-in (yesterday was before the target was set)',
-  (select string_agg(e->>'date', ',') from jsonb_array_elements(:CR::jsonb->'days') e where e->'items' @> '[{"code":"weekly_target"}]')
-  = :T);
+  (select string_agg(e->>'date', ',') from jsonb_array_elements(:CR::jsonb->'days') e where e->'items' @> '[{"code":"weekly_target"}]') = :T);
 select test.check('C: report says this week''s target was hit', (:CR::jsonb->'this_week'->>'hit')::boolean);
-select test.check('C: next rank Samanth needs 340 more points',
-  :CR::jsonb->'next_rank'->>'name' = 'Samanth' and (:CR::jsonb->'next_rank'->>'points_needed')::int = 340);
+select test.check('C: the old "clean day" and "no games" rules are gone',
+  not exists (select 1 from jsonb_array_elements(:CR::jsonb->'days') e, jsonb_array_elements(e->'items') i
+              where i->>'code' in ('clean_day', 'not_clean', 'no_games', 'junk_day', 'porn', 'gaming_over', 'gym')));
+-- Fast day locks with the day (confirmed above).
+select test.run('fast day: locked once the day is confirmed', 'authenticated', :C,
+  format($q$update public.days set fast_day = false where id = %L$q$, :'c5'), 'locked');
+select test.run('fast day: dashboard cannot change it on a confirmed day either', 'postgres', null,
+  format($q$update public.days set fast_day = false where id = %L$q$, :'c5'), 'locked');
+select test.check('fast day: existing days default to No', (select bool_and(not fast_day) from public.days where user_id = :A));
 select test.run('weekly target: locked once hit (change refused)', 'authenticated', :C,
   $q$update public.weight_targets set target_kg = 98$q$, 'already hit — locked');
 select test.run('weekly target: locked once hit (delete refused)', 'authenticated', :C,
@@ -600,92 +705,80 @@ select test.check('weekly target: set_on is today',
 select test.run('weekly target: intruder sees none of C''s targets', 'authenticated', :B, $q$select * from public.weight_targets$q$, null, 0);
 select test.run('weekly target: visitor cannot read targets', 'anon', null, $q$select * from public.weight_targets$q$, 'permission denied');
 
--- D: penalties, blanks, gym rules, an unconfirmed today.
-insert into public.days (user_id, log_date, junk_meals, porn, gaming_hours) values
-  (:D, :T::date - 3, 2, true, 3),
-  (:D, :T::date - 2, 0, false, null),
-  (:D, :T::date - 1, 0, false, null),
-  (:D, :T::date, 0, false, 0);
-insert into public.exercises (user_id, name) values (:D, 'Squat');
-insert into public.gym_sessions (user_id, day_id, start_time, muscle_groups)
-  select :D, id, '07:00', array['legs'] from public.days where user_id = :D and log_date in (:T::date - 2, :T::date - 1);
-insert into public.gym_exercises (user_id, session_id, exercise_id, position)
-  select :D, s.id, e.id, 1 from public.gym_sessions s, public.exercises e where s.user_id = :D and e.user_id = :D;
-insert into public.gym_sets (user_id, entry_id, set_number, reps, weight_kg)
-  select :D, g.id, n, 8, 40 from public.gym_exercises g join public.gym_sessions s on s.id = g.session_id join public.days d on d.id = s.day_id,
-    generate_series(1, 2) n
-  where g.user_id = :D and (d.log_date = :T::date - 1 or n = 1);
-update public.days set confirmed_at = now() where user_id = :D and log_date < :T::date;
-select private.points_report(:D, now(), :T::date - 3) as d_report \gset
-\set DR '''' :d_report ''''
-select test.check('D: junk 2 meals, porn Yes, gaming 3 h = -50 -15 -10 = -75, not clean',
-  (select (e->>'points')::int = -75 and e->'items' @> '[{"code":"junk_day"},{"code":"porn"},{"code":"gaming_over"},{"code":"not_clean"}]'
-   from jsonb_array_elements(:DR::jsonb->'days') e where e->>'date' = (:T::date - 3)::text));
-select test.check('D: the "not clean" line explains every reason',
-  (select i->>'label' = 'Not clean: 2 junk meals, porn Yes, gaming 3 h'
-   from jsonb_array_elements(:DR::jsonb->'days') e, jsonb_array_elements(e->'items') i
-   where e->>'date' = (:T::date - 3)::text and i->>'code' = 'not_clean'));
-select test.check('D: blank gaming = not clean and no "no games" (0 points); gym with only 1 set = no points',
-  (select (e->>'points')::int = 0 and e->'items' @> '[{"code":"gym_too_short"}]'
-     and (select i->>'label' from jsonb_array_elements(e->'items') i where i->>'code' = 'not_clean') = 'Not clean: gaming not answered'
-   from jsonb_array_elements(:DR::jsonb->'days') e where e->>'date' = (:T::date - 2)::text));
-select test.check('D: gym with an exercise of 2 sets = +10',
-  (select (e->>'points')::int = 10 and e->'items' @> '[{"code":"gym"}]'
-   from jsonb_array_elements(:DR::jsonb->'days') e where e->>'date' = (:T::date - 1)::text));
-select test.check('D: today not confirmed = no points yet (pending)',
-  (select (e->>'points')::int = 0 and e->'items' @> '[{"code":"pending"}]'
-   from jsonb_array_elements(:DR::jsonb->'days') e where e->>'date' = :T));
-select test.check('D: total can go below 0 (-65), rank Sainik',
-  (:DR::jsonb->>'total')::int = -65 and :DR::jsonb->>'rank' = 'Sainik', :DR::jsonb->>'total');
-select test.check('D: days before the start date are ignored',
-  (select count(*) from jsonb_array_elements(:DR::jsonb->'days')) = 4);
 
--- E: 520 clean, on-time days to walk through every rank and weight gate.
--- Day k (1..520) = T-521+k. Total on day k = 300 (all 6 milestones on day 1) + 25k + 20*floor(k/7).
+-- D: 7 junk-free confirmed days with everything else blank or missing: each -60
+-- (nutrition -20, steps -10, junk +10, porn -15, gaming -10, sleep -10, fluids -5); the 7th earns the streak +20.
+-- Today is not confirmed (pending). Total -400.
+insert into public.days (user_id, log_date, junk_meals) select :D, :T::date - k, 0 from generate_series(0, 7) k;
+update public.days set confirmed_at = now() where user_id = :D and log_date < :T::date;
+select private.points_report(:D, now(), :T::date - 7) as d_report \gset
+\set DR '''' :d_report ''''
+select test.check('D: junk-free but otherwise blank day = -60', (test.day_of(:DR::jsonb, :T::date - 7)->>'points')::int = -60);
+select test.check('D: 7-day junk-free streak +20 on the 7th day (T-1), only there',
+  (select string_agg(e->>'date', ',') from jsonb_array_elements(:DR::jsonb->'days') e where e->'items' @> '[{"code":"streak"}]') = (:T::date - 1)::text
+  and (test.day_of(:DR::jsonb, :T::date - 1)->>'points')::int = -40);
+select test.check('D: today not confirmed = pending, no pillars yet',
+  test.day_of(:DR::jsonb, :T::date)->'items' @> '[{"code":"pending"}]' and jsonb_array_length(test.day_of(:DR::jsonb, :T::date)->'pillars') = 0);
+select test.check('D: total -400 (can go below 0), rank Sainik', (:DR::jsonb->>'total')::int = -400 and :DR::jsonb->>'rank' = 'Sainik', :DR::jsonb->>'total');
+select test.check('D: blank pillars flagged (steps, porn, gaming, sleep, Naam Jaap)',
+  (select (x->>'blanks')::int from private.day_pillars(:D, :T::date - 1) x) = 5);
+select test.check('preview: a date with no day yet = all blank, -120',
+  (select (x->>'points')::int = -120 and (x->>'blanks')::int = 6 from private.day_pillars(:D, :T::date + 30) x));
+
+-- E: 520 perfect, on-time fast days (fast day: nutrition 0) = 50 a day, to walk through every rank and gate.
+-- Day k (1..520) = T-521+k. Total on day k = 300 (6 milestones on day 1) + 50k + 20*floor(k/7).
+insert into public.days (user_id, log_date, fast_day, steps, junk_meals, porn, gaming_hours, bedtime, wake_time, naam_jaap, weight_kg)
+select :E, :T::date - 521 + k, true, 6000, 0, false, 0, '23:00', '07:00', true,
+  case when k <= 150 then 93 when k <= 160 then 94.6 when k <= 170 then 96 when k <= 240 then 93
+       when k <= 330 then 84 when k <= 340 then 85.8 when k <= 350 then 87 else 84 end
+from generate_series(1, 520) k;
+insert into public.fluids (user_id, day_id, drink_time, drink_type, ml) select :E, id, '09:00', 'water', 4000 from public.days where user_id = :E;
 -- Confirm times are set directly (test database only) so no day is late.
 alter table public.days disable trigger guard_days;
-insert into public.days (user_id, log_date, junk_meals, porn, gaming_hours, weight_kg, confirmed_at)
-select :E, :T::date - 521 + k, 0, false, 0,
-  case when k <= 150 then 93 when k <= 160 then 94.6 when k <= 170 then 96 when k <= 240 then 93
-       when k <= 330 then 84 when k <= 340 then 85.8 when k <= 350 then 87 else 84 end,
-  ((:T::date - 520 + k)::timestamp at time zone 'Asia/Kolkata')
-from generate_series(1, 520) k;
+update public.days set confirmed_at = ((log_date + 1)::timestamp at time zone 'Asia/Kolkata') where user_id = :E;
 alter table public.days enable trigger guard_days;
 select private.points_report(:E, now(), :T::date - 520) as e_report \gset
 \set ER '''' :e_report ''''
-create function test.e_rank(k int, report jsonb) returns text language sql as $$
+create function test.e_rank(k int, report jsonb) returns text language sql as $f$
   select e->>'rank' from jsonb_array_elements(report->'days') e
-  where e->>'date' = ((now() at time zone 'Asia/Kolkata')::date - 521 + k)::text $$;
-create function test.e_total(k int, report jsonb) returns int language sql as $$
+  where e->>'date' = ((now() at time zone 'Asia/Kolkata')::date - 521 + k)::text $f$;
+create function test.e_total(k int, report jsonb) returns int language sql as $f$
   select (e->>'total')::int from jsonb_array_elements(report->'days') e
-  where e->>'date' = ((now() at time zone 'Asia/Kolkata')::date - 521 + k)::text $$;
-select test.check('E: totals follow 300 + 25k + 20*floor(k/7) (day 1: 325, day 7: 495, day 520: 14780)',
-  test.e_total(1, :ER) = 325 and test.e_total(7, :ER) = 495 and test.e_total(520, :ER) = 300 + 25 * 520 + 20 * 74,
-  test.e_total(520, :ER)::text);
-select test.check('E: Sainik -> Shoorveer at 350 (day 2), Samanth at 700, Raja at 1,500',
-  test.e_rank(1, :ER) = 'Sainik' and test.e_rank(2, :ER) = 'Shoorveer'
-  and test.e_rank(14, :ER) = 'Shoorveer' and test.e_rank(15, :ER) = 'Samanth' and test.e_rank(43, :ER) = 'Samanth' and test.e_rank(44, :ER) = 'Raja');
-select test.check('E: Maharaj on the first day with 3,500 points (day 116; gate held since day 1)',
-  test.e_rank(115, :ER) = 'Raja' and test.e_rank(116, :ER) = 'Maharaj', test.e_total(116, :ER)::text);
+  where e->>'date' = ((now() at time zone 'Asia/Kolkata')::date - 521 + k)::text $f$;
+select test.check('E: totals follow 300 + 50k + 20*floor(k/7) (day 1: 350, day 7: 670, day 520: 27,780)',
+  test.e_total(1, :ER) = 350 and test.e_total(7, :ER) = 670 and test.e_total(520, :ER) = 27780, test.e_total(520, :ER)::text);
+select test.check('E: Shoorveer at 525 (day 5), Samanth at 1,050 (day 15), Raja at 2,250 (day 37: exactly 2,250)',
+  test.e_rank(4, :ER) = 'Sainik' and test.e_rank(5, :ER) = 'Shoorveer' and test.e_rank(14, :ER) = 'Shoorveer' and test.e_rank(15, :ER) = 'Samanth'
+  and test.e_rank(36, :ER) = 'Samanth' and test.e_rank(37, :ER) = 'Raja' and test.e_total(37, :ER) = 2250);
+select test.check('E: Maharaj on the first day with 5,250 points (day 94; gate held since day 1)',
+  test.e_rank(93, :ER) = 'Raja' and test.e_rank(94, :ER) = 'Maharaj', test.e_total(94, :ER)::text);
 select test.check('E: average between 94 and 95 keeps Maharaj (day 162: exactly 95.0)',
   test.e_rank(160, :ER) = 'Maharaj' and test.e_rank(162, :ER) = 'Maharaj');
-select test.check('E: average above 95 loses Maharaj -> Raja (day 163: 95.2)',
-  test.e_rank(163, :ER) = 'Raja');
+select test.check('E: average above 95 loses Maharaj -> Raja (day 163: 95.2)', test.e_rank(163, :ER) = 'Raja');
 select test.check('E: back under 94 must be held 28 days again (from day 175): Raja on day 201, Maharaj on day 202',
   test.e_rank(201, :ER) = 'Raja' and test.e_rank(202, :ER) = 'Maharaj');
-select test.check('E: Chakravarti Samrat on the first day with 7,500 points and average <= 85 (day 259)',
-  test.e_rank(258, :ER) = 'Maharaj' and test.e_rank(259, :ER) = 'Chakravarti Samrat', test.e_total(259, :ER)::text);
+select test.check('E: Chakravarti Samrat once the average is <= 85 (day 247; points passed 11,250 earlier)',
+  test.e_rank(246, :ER) = 'Maharaj' and test.e_rank(247, :ER) = 'Chakravarti Samrat');
 select test.check('E: average up to 86 keeps Chakravarti Samrat (day 341: 85.97)',
   test.e_rank(340, :ER) = 'Chakravarti Samrat' and test.e_rank(341, :ER) = 'Chakravarti Samrat');
-select test.check('E: average above 86 loses it -> Maharaj (still held 28 days at <= 94) (day 342)',
-  test.e_rank(342, :ER) = 'Maharaj');
-select test.check('E: Chakravarti Samrat again once the average is <= 85 (day 355), not before (day 354)',
+select test.check('E: Vikramaditya not on day 336 (18,000 points reached but the average is above 85 from day 334)',
+  test.e_rank(336, :ER) = 'Chakravarti Samrat' and test.e_total(336, :ER) >= 18000);
+select test.check('E: average above 86 loses it -> Maharaj (day 342)', test.e_rank(342, :ER) = 'Maharaj');
+select test.check('E: Chakravarti Samrat again at average <= 85 (day 355), not before (day 354)',
   test.e_rank(354, :ER) = 'Maharaj' and test.e_rank(355, :ER) = 'Chakravarti Samrat');
-select test.check('E: Vikramaditya on the first day with 12,000 points (day 420; <= 85 held since day 355)',
-  test.e_rank(419, :ER) = 'Chakravarti Samrat' and test.e_rank(420, :ER) = 'Vikramaditya', test.e_total(420, :ER)::text);
+select test.check('E: Vikramaditya after <= 85 held 28 days from day 355 (day 382), not day 381',
+  test.e_rank(381, :ER) = 'Chakravarti Samrat' and test.e_rank(382, :ER) = 'Vikramaditya');
 select test.check('E: current rank Vikramaditya, no next rank',
   :ER::jsonb->>'rank' = 'Vikramaditya' and :ER::jsonb->'next_rank' = 'null'::jsonb);
 select test.check('E: 7-day average reported (84)', (:ER::jsonb->>'avg7_kg')::numeric = 84);
+
+-- Preview for the Confirm dialog: the owner's own day only.
+select test.run('preview: owner gets their own day', 'authenticated', :C,
+  format($q$select public.preview_day_points(%L)$q$, :T::date), null, 1);
+select test.run('preview: visitor cannot call it', 'anon', null,
+  format($q$select public.preview_day_points(%L)$q$, :T::date), 'permission denied');
+select test.run('day_pillars is private', 'authenticated', :C,
+  format($q$select private.day_pillars(%L, %L)$q$, :C, :T::date), 'permission denied');
 
 -- Access rules.
 select test.run('get_my_points: owner gets their own report', 'authenticated', :C,

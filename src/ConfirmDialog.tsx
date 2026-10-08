@@ -8,6 +8,7 @@ import { KCAL_CAP, foodTotals, formatNumber, formatTotal, type FoodRow } from '.
 import { FLUID_TARGET_ML, fluidTotals, type FluidRow } from './lib/fluids'
 import { cardioLabel, totalMinutes, type CardioRow } from './lib/cardio'
 import { formatMinutes } from './lib/sleep'
+import { blankCost, formatPoints, pillarLine, type DayPreview } from './lib/points'
 
 type Props = {
   supabase: SupabaseClient
@@ -30,6 +31,9 @@ function ConfirmDialog({ supabase, date, isToday, row, ensureDay, onCancel, onCo
   const [loadError, setLoadError] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Points if confirmed now (rules v2). Optional: the dialog still works if it cannot load.
+  const [preview, setPreview] = useState<DayPreview | null>(null)
+  const [previewError, setPreviewError] = useState(false)
 
   // Loading data from the server is what effects are for; state changes only after the reply.
   useEffect(() => {
@@ -54,8 +58,14 @@ function ConfirmDialog({ supabase, date, isToday, row, ensureDay, onCancel, onCo
       setItems({ food: food.data as FoodRow[], fluids: fluids.data as FluidRow[], cardio: cardio.data as CardioRow[], gym: gym.data as GymSummary | null })
     }
     load()
+    // Same calculation the Points screen uses (database: private.day_pillars), from what is saved now.
+    supabase.rpc('preview_day_points', { p_date: date }).then(({ data, error: err }) => {
+      if (cancelled) return
+      if (err) setPreviewError(true)
+      else setPreview(data as DayPreview)
+    })
     return () => { cancelled = true }
-  }, [supabase, row])
+  }, [supabase, row, date])
 
   // Close with the Escape key, like any dialog.
   useEffect(() => {
@@ -191,6 +201,42 @@ function ConfirmDialog({ supabase, date, isToday, row, ensureDay, onCancel, onCo
                 ? <p className="small">Every once-a-day field has an answer.</p>
                 : <p className="small">{blanks.join(', ')}. These will stay blank forever.</p>}
             </div>
+
+            <section className="confirm-points" aria-label="Points if confirmed now">
+              <h3>Points if confirmed now</h3>
+              {!preview && !previewError && <p className="muted small">Working out the points…</p>}
+              {previewError && <p className="muted small">The points preview is not available right now. Confirming still works.</p>}
+              {preview && (
+                <>
+                  {preview.pillars.some((p) => p.blank) && (
+                    <div className="confirm-blanks" role="alert" aria-label="Blank pillars">
+                      <strong className="small">⚠ Blank: fill these before locking</strong>
+                      <ul className="small">
+                        {preview.pillars.filter((p) => p.blank).map((p) => <li key={p.code}>{blankCost(p)}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  <p className="pillar-line small">{pillarLine(preview.pillars)}</p>
+                  <ul className="confirm-pillars small">
+                    {preview.pillars.map((p) => (
+                      <li key={p.code} className={p.blank || p.points < 0 ? 'pillar-miss' : 'muted'}>
+                        <span className="points-amount">{formatPoints(p.points)}</span>
+                        {p.name}: {p.detail}
+                      </li>
+                    ))}
+                  </ul>
+                  {preview.late && (
+                    <p className="pillar-miss small">
+                      <span className="points-amount">{formatPoints(preview.late_points)}</span>Confirming now is after the 7-day deadline.
+                    </p>
+                  )}
+                  <p className="small">
+                    <strong>{formatPoints(preview.points + preview.late_points)}</strong> for this day
+                    <span className="muted"> (plus any streak, weekly target or milestone bonus)</span>
+                  </p>
+                </>
+              )}
+            </section>
           </div>
         )}
 

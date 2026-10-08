@@ -1,7 +1,7 @@
 // Run with: npm test
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { formatPoints, nextRankNeeds, targetError, weekOf } from '../src/lib/points.ts'
+import { blankCost, formatPoints, nextRankNeeds, pillarLine, pillarMisses, targetError, weekOf, type Pillar } from '../src/lib/points.ts'
 
 test('points are shown with a sign', () => {
   assert.equal(formatPoints(20), '+20')
@@ -35,4 +35,14 @@ test('next rank: what is still needed', () => {
     ['7-day average weight 94 kg or less, held 28 days in a row (now 5)'])
   assert.deepEqual(nextRankNeeds({ name: 'Chakravarti Samrat', points: 7500, points_needed: 1200, gate_kg: 85, hold_days: 0, held_days: 0 }),
     ['1,200 more points', '7-day average weight 85 kg or less'])
+})
+
+test('pillar line, misses and blank costs', () => {
+  const p = (code: string, name: string, points: number, blank = false, detail = ''): Pillar => ({ code, name, points, blank, detail })
+  const pillars = [p('nutrition', 'Nutrition', 20), p('steps', 'Steps', -10, true, 'blank'), p('junk', 'Junk', 10),
+    p('gym', 'Gym', 0, false, 'no session'), p('naam_jaap', 'Naam Jaap', 0, true, 'blank')]
+  assert.equal(pillarLine(pillars), 'Nutrition +20 · Steps −10 · Junk +10 · Gym 0 · Naam Jaap 0')
+  assert.deepEqual(pillarMisses(pillars).map((x) => x.code), ['steps', 'naam_jaap']) // gym 0 with no session is not a miss
+  assert.equal(blankCost(pillars[1]), 'Steps: blank → −10')
+  assert.equal(blankCost(p('junk', 'Junk', -50, true)), 'Junk: blank → −50')
 })

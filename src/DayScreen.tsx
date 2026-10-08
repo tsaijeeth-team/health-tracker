@@ -327,6 +327,19 @@ function DayScreen({ supabase, email, onOpenShare, onOpenProgress, onOpenPoints 
               ensureDay={ensureDay}
               onDirtyChange={setFoodDirty}
               drinkKcal={drinkKcal}
+              fastDay={
+                <Field label="Fast day" hint="Nutrition scores 0 points on a fast day">
+                  <div className="segmented two" role="group" aria-label="Fast day">
+                    {(['yes', 'no'] as const).map((v) => (
+                      <button key={v} type="button" disabled={disabled}
+                        className={form.fast_day === v ? 'chip selected' : 'chip'} aria-pressed={form.fast_day === v}
+                        onClick={() => update('fast_day', v)}>
+                        {v === 'yes' ? 'Yes' : 'No'}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              }
             />
 
             <FluidsSection
