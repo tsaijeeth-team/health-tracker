@@ -132,7 +132,7 @@ The database works out "today" with its own clock, not the phone's.
 ## Points & rank (step 14)
 
 Values and thresholds are a **draft**. They live in ONE place: `private.points_rules()`, now in
-`supabase/migrations/009_points_v2.sql` (it replaced the 007 version). To change them, edit that one function and run it again.
+`supabase/migrations/010_nutrition_kcal_only.sql` (latest version; it replaced 009's, which replaced 007's). To change them, edit that one function and run it again.
 
 **Rules v2 (owner, 8 Oct 2026; `009_points_v2.sql`)** replace the "clean day" bundle. They apply retrospectively from the
 points start date: points are never stored, so everything is recalculated from the saved logs. No logged or locked
@@ -151,7 +151,9 @@ page can never disagree). The total can go below 0.
 
 | # | Pillar | Points |
 |---|---|---|
-| 1 | Nutrition: total kcal (food + known drink kcal) **under** 2,000 AND protein (known total) **over** 100 g | +20, else −20 |
+| 1 | Nutrition (v2.1): total kcal (food + known drink kcal) **under** 2,000 AND protein (known total) **over** 100 g | +20 |
+|   | – kcal **under** 2,000 but protein 100 g or less (v2.1; was −20) | 0 |
+|   | – kcal 2,000 **or more** (any protein) | −20 |
 |   | – drinks with unknown kcal: known kcal only (like protein); the breakdown shows "N drinks with unknown kcal" | |
 |   | – no food logged (not a fast day) | −20 |
 |   | – day marked **Fast day** | 0 |
@@ -164,7 +166,7 @@ page can never disagree). The total can go below 0.
 | 8 | Gym: a session (max 1 per day) with at least 1 exercise of 2+ sets | +10; else 0 |
 | 9 | Naam Jaap: Yes | +5; No or blank 0 |
 
-Exact lines: exactly 2,000 kcal, exactly 100 g protein and exactly 5,000 steps are misses; exactly 7 h 00 sleep = +10,
+Exact lines: exactly 2,000 kcal = −20; exactly 100 g protein (under 2,000 kcal) = 0; exactly 5,000 steps = miss; exactly 7 h 00 sleep = +10,
 exactly 6 h 00 = 0; exactly 4,000 ml = +5, exactly 3,000 ml = 0; exactly 2 h gaming = 0.
 
 **Bonuses and penalties:**
@@ -175,6 +177,10 @@ exactly 6 h 00 = 0; exactly 4,000 ml = +5, exactly 3,000 ml = 0; exactly 2 h gam
 | Weekly weight target hit (first confirmed weigh-in at or below this week's target; once per week) | +10 |
 | Weight milestones, once ever each: first confirmed weigh-in at or below 102, 100, 99.9, 98, 96, 94 kg | +50 each |
 | Day not confirmed by 23:59 IST on the 7th day after it (e.g. 5 Oct → by 12 Oct 23:59) | −20 |
+
+**v2.1 (owner, 9 Oct 2026; `010_nutrition_kcal_only.sql`):** Nutrition is no longer penalised for missing the protein
+target: under 2,000 kcal with 100 g protein or less now scores 0 (was −20). 2,000 kcal or more and "no food logged" stay
+−20; fast day stays 0. Applies retrospectively from the start date (points are recalculated, nothing stored).
 
 **Removed in v2:** "clean day" +20, separate "no games" +5, the old junk −50 / porn −15 / gaming −10 penalties (now
 pillars 3–5), and the old clean-day streak.
@@ -288,6 +294,7 @@ The .json backup includes the weekly targets. Points themselves are not stored (
   - `supabase/migrations/007_points.sql` (step 14)
   - `supabase/migrations/008_points_start.sql` (points start date → Mon, 5 Oct 2026)
   - `supabase/migrations/009_points_v2.sql` (points rules v2: pillars, fast day, ranks ×1.5)
+  - `supabase/migrations/010_nutrition_kcal_only.sql` (points rules v2.1: under 2,000 kcal without the protein target = 0)
 - Attack tests: `supabase/tests/` (run only on a local throwaway database, never in Supabase).
 - Live check: `supabase/live_check.sql` (safe to run in Supabase: one transaction ending in ROLLBACK; nothing is saved).
 

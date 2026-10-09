@@ -12,6 +12,8 @@
 --   psql -d t -f supabase/migrations/006_gym.sql
 --   psql -d t -f supabase/migrations/007_points.sql
 --   psql -d t -f supabase/migrations/008_points_start.sql
+--   psql -d t -f supabase/migrations/009_points_v2.sql
+--   psql -d t -f supabase/migrations/010_nutrition_kcal_only.sql
 --   psql -d t -f supabase/tests/lock_tests.sql
 
 \set ON_ERROR_STOP 1
@@ -561,7 +563,7 @@ create function test.add_drink(p_day uuid, p_type text, p_ml int, p_kcal numeric
   select p_day, d.user_id, '09:00', p_type, p_ml, p_kcal from public.days d where d.id = p_day $f$;
 
 -- C: 10 days of pillar boundaries. Confirmed now, so T-9 is late (-20) and T-8 (nothing logged) is missed (-20).
--- Expected day points (hand-worked): T-9 50, T-8 -20, T-7 45, T-6 -40, T-5 150, T-4 70, T-3 30, T-2 -70, T-1 70, T 80 = 365.
+-- Expected day points (hand-worked, rules v2.1): T-9 50, T-8 -20, T-7 45, T-6 -20, T-5 150, T-4 70, T-3 30, T-2 -70, T-1 70, T 80 = 385.
 select test.add_day(:C, :T::date - 9) as c9 \gset
 select test.add_day(:C, :T::date - 7) as c7 \gset
 select test.add_day(:C, :T::date - 6) as c6 \gset
@@ -578,8 +580,8 @@ update public.days set weight_kg = 103 where id = :'c9';
 -- 3,000 ml (0), Naam Jaap No (0), gym 2 sets (+10), 101.5 kg (milestone 102).  -5 + 50 = 45.
 select test.add_food(:'c7', 2000, 120); select test.add_drink(:'c7', 'water', 3000);
 update public.days set steps = 5000, gaming_hours = 1.5, bedtime = '23:01', wake_time = '05:01', naam_jaap = false, weight_kg = 101.5 where id = :'c7';
--- T-6: protein exactly 100 g (miss), gaming 2.5 h (-10), sleep 5 h 59 (-10), 2,999 ml (-5), porn Yes (-15),
--- Naam Jaap blank (0), gym with 1 set only (0), 8,000 steps (+10).  = -40.
+-- T-6: 1,500 kcal with protein exactly 100 g (v2.1: under the kcal limit, protein not over 100 = 0), gaming 2.5 h (-10),
+-- sleep 5 h 59 (-10), 2,999 ml (-5), porn Yes (-15), Naam Jaap blank (0), gym with 1 set only (0), 8,000 steps (+10).  = -20.
 select test.add_food(:'c6', 1500, 100); select test.add_drink(:'c6', 'water', 2999);
 update public.days set steps = 8000, gaming_hours = 2.5, bedtime = '23:01', wake_time = '05:00', porn = true, naam_jaap = null where id = :'c6';
 -- T-5: fast day, no food (nutrition 0), otherwise good; 99.9 kg (milestones 100 and 99.9).  50 + 100 = 150.
@@ -616,13 +618,13 @@ create function test.day_of(report jsonb, d date) returns jsonb language sql as 
   select e from jsonb_array_elements(report->'days') e where e->>'date' = d::text $f$;
 create function test.pillar(report jsonb, d date, code text) returns jsonb language sql as $f$
   select p from jsonb_array_elements(test.day_of(report, d)->'pillars') p where p->>'code' = code $f$;
-select test.check('C: total 365 = 50 - 20 + 45 - 40 + 150 + 70 + 30 - 70 + 70 + 80',
-  (:CR::jsonb->>'total')::int = 365, :CR::jsonb->>'total');
+select test.check('C: total 385 = 50 - 20 + 45 - 20 + 150 + 70 + 30 - 70 + 70 + 80',
+  (:CR::jsonb->>'total')::int = 385, :CR::jsonb->>'total');
 select test.check('C: each day''s points as hand-worked',
-  (select string_agg(e->>'points', ',' order by e->>'date') from jsonb_array_elements(:CR::jsonb->'days') e) = '50,-20,45,-40,150,70,30,-70,70,80',
+  (select string_agg(e->>'points', ',' order by e->>'date') from jsonb_array_elements(:CR::jsonb->'days') e) = '50,-20,45,-20,150,70,30,-70,70,80',
   (select string_agg(e->>'points', ',' order by e->>'date') from jsonb_array_elements(:CR::jsonb->'days') e));
-select test.check('C: rank Sainik; Shoorveer needs 160 more (525)',
-  :CR::jsonb->>'rank' = 'Sainik' and :CR::jsonb->'next_rank'->>'name' = 'Shoorveer' and (:CR::jsonb->'next_rank'->>'points_needed')::int = 160);
+select test.check('C: rank Sainik; Shoorveer needs 140 more (525)',
+  :CR::jsonb->>'rank' = 'Sainik' and :CR::jsonb->'next_rank'->>'name' = 'Shoorveer' and (:CR::jsonb->'next_rank'->>'points_needed')::int = 140);
 select test.check('C: a good day = 9 pillars in order, +70',
   (select string_agg(p->>'name' || ' ' || (p->>'points'), ', ') from jsonb_array_elements(test.day_of(:CR::jsonb, :T::date - 1)->'pillars') p)
   = 'Nutrition 20, Steps 10, Junk 10, Porn 5, Gaming 5, Sleep 10, Fluids 5, Gym 0, Naam Jaap 5');
@@ -645,7 +647,9 @@ select test.check('C: fluids exactly 3,000 ml = 0; 2,999 = -5; 4,000 = +5',
 select test.check('C: gym with an exercise of 2 sets = +10; only 1 set = 0 (explained)',
   (test.pillar(:CR::jsonb, :T::date - 7, 'gym')->>'points')::int = 10 and (test.pillar(:CR::jsonb, :T::date - 6, 'gym')->>'points')::int = 0
   and test.pillar(:CR::jsonb, :T::date - 6, 'gym')->>'detail' = 'no exercise with 2+ sets');
-select test.check('C: exactly 100 g protein = nutrition miss (needs OVER 100)', (test.pillar(:CR::jsonb, :T::date - 6, 'nutrition')->>'points')::int = -20);
+select test.check('C: v2.1: under 2,000 kcal with protein exactly 100 g = 0 (no penalty, no points)', (test.pillar(:CR::jsonb, :T::date - 6, 'nutrition')->>'points')::int = 0);
+select test.check('C: v2.1: 2,000 kcal or more = -20 even with 120 g protein', (test.pillar(:CR::jsonb, :T::date - 7, 'nutrition')->>'points')::int = -20);
+select test.check('C: v2.1: no food logged is still -20', (test.pillar(:CR::jsonb, :T::date - 3, 'nutrition')->>'points')::int = -20);
 select test.check('C: porn Yes = -15; Naam Jaap No = 0, blank = 0 (flagged blank)',
   (test.pillar(:CR::jsonb, :T::date - 6, 'porn')->>'points')::int = -15 and (test.pillar(:CR::jsonb, :T::date - 7, 'naam_jaap')->>'points')::int = 0
   and (test.pillar(:CR::jsonb, :T::date - 6, 'naam_jaap')->>'blank')::boolean);

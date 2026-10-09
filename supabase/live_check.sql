@@ -414,19 +414,19 @@ begin
     end if;
   end;
 
-  -- ---- 52-59. Points & rank (007, 008, 009 = rules v2) ----
-  -- 2000-01-01 alone, as if today were that day. Pillars: nutrition -20 (100 kcal, 0 g protein), steps -10 (blank),
+  -- ---- 52-59. Points & rank (007, 008, 009 = rules v2, 010 = nutrition v2.1) ----
+  -- 2000-01-01 alone, as if today were that day. Pillars: nutrition 0 (100 kcal: under 2,000; 0 g protein), steps -10 (blank),
   -- junk -50 (blank), porn -15 (blank), gaming -10 (blank), sleep +10 (7 h 30), fluids -5 (500 ml), gym 0 (1 set),
-  -- Naam Jaap 0 (blank) = -100. Plus 6 milestones at 80 kg (+300) and the late confirm (-20). Total 180.
+  -- Naam Jaap 0 (blank) = -80. Plus 6 milestones at 80 kg (+300) and the late confirm (-20). Total 200.
   reset role;
   begin
     select private.points_report(owner_id, '2000-01-01 12:00 Asia/Kolkata'::timestamptz, '2000-01-01') into val;
-    if (val::jsonb->>'total')::int = 180 and val::jsonb->>'rank' = 'Sainik'
+    if (val::jsonb->>'total')::int = 200 and val::jsonb->>'rank' = 'Sainik'
        and (select count(*) from jsonb_array_elements(val::jsonb->'days'->0->'items') i where i->>'code' = 'milestone') = 6
        and val::jsonb->'days'->0->'items' @> '[{"code":"missed_confirm"}]'
-       and (select string_agg(p->>'points', ',') from jsonb_array_elements(val::jsonb->'days'->0->'pillars') p) = '-20,-10,-50,-15,-10,10,-5,0,0' then
+       and (select string_agg(p->>'points', ',') from jsonb_array_elements(val::jsonb->'days'->0->'pillars') p) = '0,-10,-50,-15,-10,10,-5,0,0' then
       passed := passed + 1;
-    else failures := failures || ('points v2 for 2000-01-01 should total 180 (did you run 009_points_v2.sql?), got: ' || coalesce(val::jsonb->>'total', 'nothing'));
+    else failures := failures || ('points v2.1 for 2000-01-01 should total 200 (did you run 010_nutrition_kcal_only.sql?), got: ' || coalesce(val::jsonb->>'total', 'nothing'));
     end if;
   exception when others then
     failures := failures || ('could not calculate points (did you run 007_points.sql?): ' || sqlerrm);
@@ -461,7 +461,7 @@ begin
   end;
   begin
     select public.preview_day_points(date '2000-01-01')::text into val;
-    if jsonb_array_length(val::jsonb->'pillars') = 9 and (val::jsonb->>'points')::int = -100
+    if jsonb_array_length(val::jsonb->'pillars') = 9 and (val::jsonb->>'points')::int = -80
        and (val::jsonb->>'late')::boolean and (val::jsonb->>'late_points')::int = -20 then
       passed := passed + 1;
     else failures := failures || ('confirm preview for 2000-01-01 is wrong: ' || coalesce(val, 'nothing'));

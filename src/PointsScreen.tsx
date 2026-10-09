@@ -18,7 +18,7 @@ function ruleLines(rules: PointsReport['rules']): string[] {
   const kg = (rules.milestones_kg as number[]).join(', ')
   return [
     `Only confirmed days count. Each pillar is scored on its own; a blank field scores that pillar's worst value.`,
-    `Nutrition: under ${num('nutrition_kcal_under')} kcal (food + known drink kcal) AND over ${num('nutrition_protein_over')} g protein ${p('nutrition_hit')}, else ${p('nutrition_miss')} (no food logged too). Fast day: ${p('nutrition_fast_day')}.`,
+    `Nutrition (food + known drink kcal): under ${num('nutrition_kcal_under')} kcal with over ${num('nutrition_protein_over')} g protein ${p('nutrition_hit')}; under ${num('nutrition_kcal_under')} kcal with less protein ${p('nutrition_kcal_only')}; ${num('nutrition_kcal_under')} kcal or more ${p('nutrition_miss')}; no food logged ${p('nutrition_miss')}. Fast day: ${p('nutrition_fast_day')}.`,
     `Steps: over ${num('steps_over')} ${p('steps_hit')}, else ${p('steps_miss')}.`,
     `Junk: 0 meals ${p('junk_free')}; 1 or more ${p('junk_any')}.`,
     `Porn: No ${p('porn_no')}; Yes ${p('porn_yes')}.`,
